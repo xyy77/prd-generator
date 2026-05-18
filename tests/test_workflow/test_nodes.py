@@ -4,6 +4,7 @@ from src.workflow.nodes.requirement_analysis import requirement_analysis_node
 from src.workflow.nodes.architecture_design import architecture_design_node
 from src.workflow.nodes.process_flow import process_flow_node
 from src.workflow.nodes.document_finalization import document_finalization_node
+from src.workflow.nodes.prd_revision import prd_revision_node
 from src.workflow.state import WorkflowState
 
 
@@ -68,3 +69,24 @@ class TestDocumentFinalizationNode:
             result = document_finalization_node(state)
             assert "final_prd_json" in result
             assert result["final_prd_json"]["version_record"]["product_name"] == "最终产品"
+
+
+class TestPrdRevisionNode:
+    def test_revision_node_updates_prd(self):
+        revision_json = '{"version_record": {"document_version": "1.1", "product_name": "修订产品"}, "background_and_goals": {}, "user_personas": [], "functional_requirements": [], "non_functional_requirements": {}, "tech_architecture": {}, "analytics_and_iteration": {}, "risks_and_mitigation": [], "appendix": {}}'
+        with patch("src.workflow.nodes.prd_revision.LLMClient") as mock_llm:
+            mock_llm.return_value.chat_with_json_mode.return_value = revision_json
+            state = make_state(
+                final_prd_json={"version_record": {"product_name": "初始产品"}},
+                user_feedback="增加社交分享功能",
+            )
+            result = prd_revision_node(state)
+            assert "final_prd_json" in result
+            assert result["final_prd_json"]["version_record"]["product_name"] == "修订产品"
+            assert result.get("revision_count") == 1
+            assert len(result.get("revision_history", [])) == 1
+
+    def test_revision_node_no_feedback(self):
+        state = make_state(final_prd_json={"test": True})
+        result = prd_revision_node(state)
+        assert "未提供修改意见" in result.get("error_message", "")

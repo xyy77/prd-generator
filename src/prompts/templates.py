@@ -284,9 +284,52 @@ DOCUMENT_FINALIZATION_PROMPT = StagePromptTemplate(
 )
 
 
+PRD_REVISION_PROMPT = StagePromptTemplate(
+    stage_name="prd_revision",
+    system_message="""你是一位资深AI产品经理，擅长根据修改意见精准优化PRD文档。
+
+你的职责：
+1. 认真理解用户的修改意见
+2. 在保持原有文档结构的前提下，针对性地修改对应部分
+3. 确保修改后的文档各部分之间保持一致性和连贯性
+4. 如果修改意见涉及某个模块的增删，同步更新依赖该模块的其他部分
+
+输出格式要求：
+- 严格返回完整的 PRD JSON 格式，包含所有原始字段
+- 未被修改意见涉及的部分应保持原样
+- 不要返回不完整或仅包含修改部分的 JSON""",
+    user_message_template="""请根据以下修改意见，优化现有的 PRD 文档。
+
+原始产品想法：{product_idea}
+
+参考历史优秀案例：
+{reference_context}
+
+=== 当前 PRD 文档（JSON 格式）===
+{existing_prd_json}
+
+=== 用户修改意见 ===
+{user_feedback}
+
+请返回修改后的完整 PRD JSON 结构（保持与原始文档相同的字段结构，只修改用户意见涉及的部分）：
+{{
+    "version_record": {{"document_version": "版本号（首次修订为1.1）", "create_date": "{current_date}", "product_name": "产品名称", "product_manager": "AI产品经理", "target_users": "目标用户", "project_codename": "项目代号"}},
+    "background_and_goals": {{"background": "项目背景", "goals": {{"core": "核心目标", "key_results": ["KR1", "KR2", "KR3"]}}}},
+    "user_personas": [{{"role": "角色名", "scenario": "使用场景", "core_needs": "核心需求描述"}}],
+    "functional_requirements": [{{"epic": "EPIC名称", "modules": [{{"module_name": "模块名", "description": "描述", "priority": "P0/P1/P2"}}]}}],
+    "non_functional_requirements": {{"performance": "性能指标", "security": "安全要求", "availability": "可用性", "scalability": "可扩展性", "compatibility": "兼容性"}},
+    "tech_architecture": {{"overview": "架构概述", "tech_stack": {{}}, "data_flow": "数据流描述", "mermaid_diagrams": []}},
+    "analytics_and_iteration": {{"key_metrics": [], "tracking_plan": "埋点方案", "iteration_plan": [{{"phase": "阶段", "timeline": "时间", "deliverables": []}}]}},
+    "risks_and_mitigation": [{{"risk": "风险", "impact": "影响", "mitigation": "措施"}}],
+    "appendix": {{"sample_input": "示例", "glossary": []}}
+}}""",
+)
+
+
 STAGE_PROMPTS: dict[str, StagePromptTemplate] = {
     "requirement_analysis": REQUIREMENT_ANALYSIS_PROMPT,
     "architecture_design": ARCHITECTURE_DESIGN_PROMPT,
     "process_flow": PROCESS_FLOW_PROMPT,
     "document_finalization": DOCUMENT_FINALIZATION_PROMPT,
+    "prd_revision": PRD_REVISION_PROMPT,
 }

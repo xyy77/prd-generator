@@ -21,10 +21,15 @@ def process_flow_node(state: WorkflowState) -> dict:
         architecture_design=json.dumps(arch_json, ensure_ascii=False, indent=2),
     )
 
+    model = state.get("selected_model") or None
+    temperature = state.get("temperature", None)
+
     return run_stage_node(
         client=client,
         messages=messages,
         stage_name="process_flow",
         output_key="process_flow",
         state=state,
+        model=model,
+        temperature=temperature,
     )

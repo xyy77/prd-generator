@@ -27,6 +27,8 @@ class PromptManager:
         requirement_analysis: str = "",
         architecture_design: str = "",
         process_flow: str = "",
+        existing_prd_json: str = "",
+        user_feedback: str = "",
     ) -> list[dict]:
         from datetime import date
 
@@ -40,6 +42,10 @@ class PromptManager:
             reference_context=reference_context or "暂无参考案例",
             current_date=date.today().strftime("%Y-%m-%d"),
         )
+
+        if stage == "prd_revision":
+            kwargs["existing_prd_json"] = existing_prd_json or "{}"
+            kwargs["user_feedback"] = user_feedback or "无修改意见"
 
         if stage in ("architecture_design", "process_flow", "document_finalization"):
             kwargs["requirement_analysis"] = requirement_analysis or "{}"

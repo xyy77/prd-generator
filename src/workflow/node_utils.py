@@ -43,9 +43,11 @@ def llm_call_with_logging(
     client: LLMClient,
     messages: list[dict],
     stage_name: str,
+    model: str | None = None,
+    temperature: float | None = None,
 ) -> str:
-    logger.info("Calling LLM for stage: %s", stage_name)
-    result = client.chat_with_json_mode(messages)
+    logger.info("Calling LLM for stage: %s (model=%s)", stage_name, model or "default")
+    result = client.chat_with_json_mode(messages, model=model)
     logger.info("Stage %s complete, response length: %d", stage_name, len(result))
     return result
 
@@ -56,9 +58,11 @@ def run_stage_node(
     stage_name: str,
     output_key: str,
     state: dict,
+    model: str | None = None,
+    temperature: float | None = None,
 ) -> dict:
     try:
-        raw = llm_call_with_logging(client, messages, stage_name)
+        raw = llm_call_with_logging(client, messages, stage_name, model=model, temperature=temperature)
         parsed = safe_json_extract(raw)
         return {
             output_key: parsed,

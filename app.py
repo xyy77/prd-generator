@@ -1,8 +1,10 @@
 """智能PRD自动生成平台 — Streamlit UI"""
 
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -14,11 +16,12 @@ from src.config import settings
 from src.rag.embedder import EmbeddingService
 from src.rag.retriever import Retriever
 from src.rag.store import ChromaStore
+from src.rag.loader import load_document
+from src.rag.chunker import RecursiveCharacterChunker
 from src.output.exporter import export_to_markdown_file, generate_shareable_filename
 from src.output.json_to_markdown import convert_to_prd_markdown
-from src.output.validator import parse_and_validate
 from src.utils.logger import setup_logging
-from src.workflow.graph import run_workflow
+from src.workflow.graph import run_workflow, run_revision, run_single_stage
 from src.workflow.state import STAGE_ORDER
 
 setup_logging()
@@ -29,7 +32,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- CSS for Mermaid ---
 st.markdown(
     """
 <style>
@@ -40,6 +42,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# --- Session state init ---
+if "workflow_result" not in st.session_state:
+    st.session_state.workflow_result = None
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = settings.deepseek_model
+if "temperature" not in st.session_state:
+    st.session_state.temperature = settings.llm_temperature
+if "generation_history" not in st.session_state:
+    st.session_state.generation_history = []
+if "uploaded_files" not in st.session_state:
+    st.session_state.uploaded_files = []
+
 
 @st.cache_resource
 def init_rag() -> Retriever:
@@ -48,46 +62,226 @@ def init_rag() -> Retriever:
     return Retriever(store, embedder)
 
 
+def _count_unique_sources() -> int:
+    """Count unique source files in the knowledge base."""
+    try:
+        retriever = init_rag()
+        all_meta = retriever.store._collection.get(include=["metadatas"])
+        metadatas = all_meta.get("metadatas", [])
+        if not metadatas:
+            return 0
+        sources = set()
+        for m in metadatas:
+            src = m.get("source") if m else None
+            if src:
+                sources.add(src)
+        return len(sources)
+    except Exception:
+        return 0
+
+
+def _get_kb_sources() -> list[str]:
+    """Get sorted list of unique source file names in the knowledge base."""
+    try:
+        retriever = init_rag()
+        all_meta = retriever.store._collection.get(include=["metadatas"])
+        metadatas = all_meta.get("metadatas", [])
+        if not metadatas:
+            return []
+        sources = sorted(set(
+            m.get("source", "unknown") for m in metadatas if m
+        ))
+        return sources
+    except Exception:
+        return []
+
+
 def render_sidebar() -> None:
     with st.sidebar:
-        st.header("⚙️ 配置")
-        st.caption(f"LLM 模型: {settings.deepseek_model}")
-        st.caption(f"嵌入模型: {settings.embedding_model_name}")
+        st.header("⚙️ 模型配置")
+
+        # Model selector
+        available = settings.available_models
+        current_idx = available.index(st.session_state.selected_model) if st.session_state.selected_model in available else 0
+        selected = st.selectbox(
+            "选择 LLM 模型",
+            available,
+            index=current_idx,
+            key="sidebar_model_select",
+        )
+        st.session_state.selected_model = selected
+
+        # Temperature slider
+        temp = st.slider(
+            "LLM 温度",
+            min_value=settings.llm_temperature_min,
+            max_value=settings.llm_temperature_max,
+            value=st.session_state.temperature,
+            step=0.05,
+            key="sidebar_temperature_slider",
+        )
+        st.session_state.temperature = temp
 
         st.divider()
 
+        # Knowledge base
         st.header("📚 知识库")
         try:
             retriever = init_rag()
-            count = retriever.store.count()
-            st.metric("已索引文档片段", count)
-            if count == 0:
-                st.warning("知识库为空，请先导入样本")
-                if st.button("从 prd_samples/ 初始化知识库"):
-                    seed_knowledge_base()
+            chunk_count = retriever.store.count()
+            source_count = _count_unique_sources()
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("文档片段", chunk_count)
+            with col_b:
+                st.metric("源文件", source_count)
+
+            if chunk_count == 0:
+                st.warning("知识库为空，请导入样本或上传文件")
+
+            # KB management buttons
+            kb_col1, kb_col2, kb_col3 = st.columns(3)
+            with kb_col1:
+                if st.button("🔄 重新加载", use_container_width=True, key="kb_reload"):
+                    _reload_knowledge_base()
+            with kb_col2:
+                if st.button("🗑️ 清空", use_container_width=True, key="kb_clear"):
+                    _clear_knowledge_base()
+            with kb_col3:
+                if st.button("🔨 重构", use_container_width=True, key="kb_rebuild"):
+                    _rebuild_knowledge_base()
+
+            # Source file list with delete
+            sources = _get_kb_sources()
+            if sources:
+                with st.expander(f"已索引文件 ({len(sources)})"):
+                    for src in sources:
+                        scol1, scol2 = st.columns([4, 1])
+                        with scol1:
+                            st.caption(f"📄 {src}")
+                        with scol2:
+                            if st.button("✕", key=f"del_{src}"):
+                                retriever.store.delete_by_source(src)
+                                st.rerun()
         except Exception as e:
             st.error(f"知识库连接失败: {e}")
+
+        st.divider()
+
+        # File upload
+        st.header("📤 上传 PRD 示例")
+        uploaded = st.file_uploader(
+            "支持 MD / PDF / DOCX",
+            type=["md", "pdf", "docx"],
+            accept_multiple_files=True,
+            key="sidebar_file_uploader",
+        )
+        if uploaded:
+            _process_uploads(uploaded)
+
+        st.divider()
+
+        # Generation history
+        st.header("📜 历史记录")
+        history = st.session_state.generation_history
+        if history:
+            for i, entry in enumerate(reversed(history)):
+                label = entry.get("product_name", f"第{i+1}次生成")
+                if st.button(f"📋 {label}", use_container_width=True, key=f"hist_{i}"):
+                    st.session_state.workflow_result = entry["result"]
+                    st.rerun()
+        else:
+            st.caption("暂无历史记录")
 
         st.divider()
         st.caption("Made with LangGraph + DeepSeek")
 
 
-def seed_knowledge_base() -> None:
-    from src.rag.chunker import RecursiveCharacterChunker
+def _process_uploads(uploaded_files: list) -> None:
+    """Save uploaded files and add to knowledge base."""
+    retriever = init_rag()
+    chunker = RecursiveCharacterChunker()
+    uploads_dir = settings.uploads_dir
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    total_added = 0
+    for f in uploaded_files:
+        if f.name in st.session_state.uploaded_files:
+            continue
+
+        # Save to disk
+        save_path = uploads_dir / f.name
+        with open(save_path, "wb") as fh:
+            fh.write(f.getbuffer())
+        st.session_state.uploaded_files.append(f.name)
+
+        # Load and chunk
+        try:
+            docs = load_document(str(save_path))
+            if docs:
+                chunks = chunker.chunk(docs)
+                if chunks:
+                    embeddings = retriever.embedder.embed_texts([c.content for c in chunks])
+                    retriever.store.add_chunks(chunks, embeddings)
+                    total_added += len(chunks)
+        except Exception as e:
+            st.error(f"处理 {f.name} 失败: {e}")
+
+    if total_added > 0:
+        st.toast(f"✅ 已添加 {total_added} 个文档片段")
+        st.rerun()
+
+
+def _reload_knowledge_base() -> None:
+    """Clear and reload from prd_samples + uploads."""
     from src.rag.loader import load_documents_from_directory
 
-    with st.spinner("正在导入 PRD 样本..."):
-        retriever = init_rag()
-        docs = load_documents_from_directory(str(settings.samples_dir))
-        if not docs:
-            st.warning(f"未在 {settings.samples_dir} 中找到文档")
-            return
-        chunker = RecursiveCharacterChunker()
-        chunks = chunker.chunk(docs)
-        embeddings = retriever.embedder.embed_texts([c.content for c in chunks])
-        retriever.store.add_chunks(chunks, embeddings)
-        st.success(f"已导入 {len(chunks)} 个文档片段")
-        st.rerun()
+    retriever = init_rag()
+    retriever.store.reset()
+    chunker = RecursiveCharacterChunker()
+    total = 0
+
+    # Load from prd_samples
+    samples_dir = settings.samples_dir
+    if samples_dir.exists():
+        docs = load_documents_from_directory(str(samples_dir))
+        if docs:
+            chunks = chunker.chunk(docs)
+            if chunks:
+                embeddings = retriever.embedder.embed_texts([c.content for c in chunks])
+                retriever.store.add_chunks(chunks, embeddings)
+                total += len(chunks)
+
+    # Load from uploads
+    uploads_dir = settings.uploads_dir
+    if uploads_dir.exists():
+        for f in uploads_dir.iterdir():
+            if f.suffix.lower() in (".md", ".pdf", ".docx"):
+                try:
+                    docs = load_document(str(f))
+                    if docs:
+                        chunks = chunker.chunk(docs)
+                        if chunks:
+                            embeddings = retriever.embedder.embed_texts([c.content for c in chunks])
+                            retriever.store.add_chunks(chunks, embeddings)
+                            total += len(chunks)
+                except Exception:
+                    pass
+
+    st.toast(f"🔄 知识库已重新加载，共 {total} 个片段")
+    st.rerun()
+
+
+def _clear_knowledge_base() -> None:
+    retriever = init_rag()
+    retriever.store.reset()
+    st.toast("🗑️ 知识库已清空")
+    st.rerun()
+
+
+def _rebuild_knowledge_base() -> None:
+    """Full rebuild: clear, re-chunk from scratch."""
+    _reload_knowledge_base()
 
 
 def display_stage_result(stage_key: str, data: dict, index: int) -> None:
@@ -109,6 +303,15 @@ def display_stage_result(stage_key: str, data: dict, index: int) -> None:
         if stage_key == "process_flow" and data:
             _display_mermaid_diagrams(data)
         st.json(data)
+
+        # Per-stage retry button
+        if st.button(f"🔄 重新生成此阶段", key=f"retry_{stage_key}"):
+            with st.spinner(f"正在重新生成：{label}..."):
+                result = st.session_state.workflow_result
+                if result:
+                    new_result = run_single_stage(stage_key, result)
+                    st.session_state.workflow_result = new_result
+                    st.rerun()
 
 
 def _display_mermaid_diagrams(data: dict) -> None:
@@ -134,14 +337,14 @@ def main() -> None:
             "💡 产品想法",
             placeholder="例如：一个帮助职场新人做职业规划的AI助手，根据用户技能和目标推荐学习路径，并生成个性化周计划。",
             height=100,
-            key="product_idea",
+            key="input_product_idea",
         )
     with col2:
         supplementary_info = st.text_area(
             "📎 补充说明（可选）",
             placeholder="目标用户、特殊场景、技术约束等...",
             height=100,
-            key="supplementary_info",
+            key="input_supplementary_info",
         )
 
     # --- Generate ---
@@ -152,29 +355,28 @@ def main() -> None:
             type="primary",
             use_container_width=True,
             disabled=not product_idea,
+            key="btn_generate",
         )
 
     if generate_clicked:
         _run_pipeline(product_idea, supplementary_info)
 
     # --- Show results from session state ---
-    if "workflow_result" in st.session_state:
+    if st.session_state.workflow_result:
         _display_results()
 
 
 def _run_pipeline(product_idea: str, supplementary_info: str) -> None:
     st.divider()
 
-    # Step 1: RAG retrieval
     with st.status("🔍 正在检索相关历史案例...", expanded=True) as status:
         retriever = init_rag()
         retrieved_context = retriever.search_as_context(product_idea)
-        st.markdown(f"**检索结果**（将注入到生成流程）：\n\n{retrieved_context[:800]}..."
-                    if len(retrieved_context) > 800
-                    else f"**检索结果**：\n\n{retrieved_context}")
+        preview = retrieved_context[:800] + "..." if len(retrieved_context) > 800 else retrieved_context
+        st.markdown(f"**检索结果**（将注入到生成流程）：\n\n{preview}")
         status.update(label="✅ 检索完成", state="complete")
 
-    # Step 2: Run workflow (3 stages, stage 1 runs requirement + architecture in parallel)
+    # Show progress during generation
     progress_bar = st.progress(0, text="准备生成...")
     stage_status = st.empty()
 
@@ -186,11 +388,14 @@ def _run_pipeline(product_idea: str, supplementary_info: str) -> None:
     progress_bar.progress(80, text="执行中：文档定稿...")
 
     try:
-        result = run_workflow(
-            product_idea=product_idea,
-            supplementary_info=supplementary_info,
-            retrieved_context=retrieved_context,
-        )
+        with st.spinner("正在生成 PRD..."):
+            result = run_workflow(
+                product_idea=product_idea,
+                supplementary_info=supplementary_info,
+                retrieved_context=retrieved_context,
+                selected_model=st.session_state.selected_model,
+                temperature=st.session_state.temperature,
+            )
 
         if result.get("error_message"):
             st.error(f"生成过程中出现错误: {result['error_message']}")
@@ -208,6 +413,20 @@ def _run_pipeline(product_idea: str, supplementary_info: str) -> None:
 
         progress_bar.progress(100, text="✅ 生成完成！")
         st.session_state.workflow_result = result
+
+        # Save to generation history
+        product_name = final_json.get("version_record", {}).get("product_name", product_idea[:30])
+        st.session_state.generation_history.append({
+            "product_name": product_name,
+            "product_idea": product_idea,
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "result": result,
+        })
+        # Trim history to max
+        max_hist = settings.max_history
+        if len(st.session_state.generation_history) > max_hist:
+            st.session_state.generation_history = st.session_state.generation_history[-max_hist:]
+
         st.rerun()
 
     except Exception as e:
@@ -222,11 +441,9 @@ def _render_markdown_with_mermaid(text: str) -> None:
 
     for i, part in enumerate(parts):
         if i % 2 == 0:
-            # Regular markdown text
             if part.strip():
                 st.markdown(part)
         else:
-            # Mermaid diagram code
             _render_mermaid_diagram(part.strip())
 
 
@@ -263,11 +480,20 @@ def _display_results() -> None:
         if data:
             display_stage_result(key, data, i)
 
-    # Final PRD
+    # Final PRD JSON
     final_json = result.get("final_prd_json", {})
     if final_json:
         with st.expander("📝 阶段 4：文档定稿（JSON）— 点击展开查看", expanded=False):
             st.json(final_json)
+            if st.button("🔄 重新生成文档定稿", key="retry_final_prd_json"):
+                with st.spinner("正在重新生成文档定稿..."):
+                    new_result = run_single_stage("document_finalization", result)
+                    # Re-generate markdown
+                    new_final = new_result.get("final_prd_json", {})
+                    if new_final:
+                        new_result["final_prd_markdown"] = convert_to_prd_markdown(new_final)
+                    st.session_state.workflow_result = new_result
+                    st.rerun()
 
     # Final Markdown
     prd_md = result.get("final_prd_markdown", "")
@@ -288,14 +514,13 @@ def _display_results() -> None:
                 file_name=filename,
                 mime="text/markdown",
                 use_container_width=True,
+                key="btn_download_md",
             )
         with col2:
             try:
                 from src.output.exporter import export_to_pdf
-                import tempfile
-                import os
 
-                if st.button("⬇️ 导出 PDF", use_container_width=True):
+                if st.button("⬇️ 导出 PDF", use_container_width=True, key="btn_export_pdf"):
                     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                         pdf_path = export_to_pdf(prd_md, tmp.name)
                         with open(pdf_path, "rb") as f:
@@ -304,9 +529,39 @@ def _display_results() -> None:
                                 data=f,
                                 file_name=filename.replace(".md", ".pdf"),
                                 mime="application/pdf",
+                                key="btn_download_pdf",
                             )
             except Exception:
                 st.caption("PDF 导出需要 weasyprint 支持")
+
+        # Revision
+        st.divider()
+        st.subheader("🔧 在线修改意见")
+        revision_feedback = st.text_area(
+            "输入修改意见，AI 将根据意见优化 PRD：",
+            placeholder="例如：增加社交分享功能、修改目标用户为大学生、将技术栈从前端改为全栈...",
+            height=80,
+            key="input_revision_feedback",
+        )
+        rev_col, _ = st.columns([1, 3])
+        with rev_col:
+            if st.button("🔧 优化 PRD", type="primary", disabled=not revision_feedback, key="btn_revise"):
+                with st.spinner("正在根据修改意见优化 PRD..."):
+                    revised = run_revision(result, revision_feedback)
+                    revised_final = revised.get("final_prd_json", {})
+                    if revised_final:
+                        revised["final_prd_markdown"] = convert_to_prd_markdown(revised_final)
+                    st.session_state.workflow_result = revised
+                    st.rerun()
+
+        # Revision history
+        revision_history = result.get("revision_history", [])
+        if revision_history:
+            with st.expander(f"📜 修订历史（{len(revision_history)} 次）"):
+                for entry in reversed(revision_history):
+                    ver = entry.get("version", "?")
+                    fb = entry.get("feedback", "")
+                    st.caption(f"**v{ver}** — 修改意见：{fb}")
 
 
 if __name__ == "__main__":

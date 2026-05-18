@@ -30,6 +30,13 @@ class WorkflowState(TypedDict, total=False):
     # Control
     current_stage: str
     error_message: str
+    selected_model: str
+    temperature: float
+
+    # Revision
+    user_feedback: str
+    revision_history: list[dict[str, Any]]
+    revision_count: int
 
     # Final output
     final_prd_markdown: str

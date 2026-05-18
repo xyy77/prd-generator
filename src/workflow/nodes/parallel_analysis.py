@@ -10,7 +10,7 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _run_requirement_analysis(state: dict, reference_context: str) -> dict:
+def _run_requirement_analysis(state: dict, reference_context: str, model: str | None, temperature: float | None) -> dict:
     client = LLMClient()
     pm = PromptManager()
     messages = pm.get_stage_prompt(
@@ -19,12 +19,12 @@ def _run_requirement_analysis(state: dict, reference_context: str) -> dict:
         supplementary_info=state.get("supplementary_info", ""),
         reference_context=reference_context,
     )
-    raw = llm_call_with_logging(client, messages, "requirement_analysis")
+    raw = llm_call_with_logging(client, messages, "requirement_analysis", model=model, temperature=temperature)
     parsed = safe_json_extract(raw)
     return {"requirement_analysis": parsed}
 
 
-def _run_architecture_design(state: dict, reference_context: str) -> dict:
+def _run_architecture_design(state: dict, reference_context: str, model: str | None, temperature: float | None) -> dict:
     client = LLMClient()
     pm = PromptManager()
     messages = pm.get_stage_prompt(
@@ -33,17 +33,19 @@ def _run_architecture_design(state: dict, reference_context: str) -> dict:
         supplementary_info=state.get("supplementary_info", ""),
         reference_context=reference_context,
     )
-    raw = llm_call_with_logging(client, messages, "architecture_design")
+    raw = llm_call_with_logging(client, messages, "architecture_design", model=model, temperature=temperature)
     parsed = safe_json_extract(raw)
     return {"architecture_design": parsed}
 
 
 def parallel_analysis_node(state: WorkflowState) -> dict:
     reference_context = state.get("retrieved_context", "")
+    model = state.get("selected_model") or None
+    temperature = state.get("temperature", None)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        req_future = executor.submit(_run_requirement_analysis, state, reference_context)
-        arch_future = executor.submit(_run_architecture_design, state, reference_context)
+        req_future = executor.submit(_run_requirement_analysis, state, reference_context, model, temperature)
+        arch_future = executor.submit(_run_architecture_design, state, reference_context, model, temperature)
 
         req_result = req_future.result()
         arch_result = arch_future.result()

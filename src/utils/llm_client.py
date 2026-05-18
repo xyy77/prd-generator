@@ -28,10 +28,11 @@ class LLMClient:
         messages: list[dict],
         temperature: float | None = None,
         response_format: dict | None = None,
+        model: str | None = None,
     ) -> str:
         temp = temperature if temperature is not None else self.temperature
         kwargs: dict = dict(
-            model=self.model,
+            model=model or self.model,
             messages=messages,
             temperature=temp,
         )
@@ -55,19 +56,20 @@ class LLMClient:
 
         raise LLMError(f"LLM call failed after {self.max_retries + 1} attempts: {last_error}")
 
-    def chat_with_json_mode(self, messages: list[dict]) -> str:
-        return self.chat(messages, response_format={"type": "json_object"})
+    def chat_with_json_mode(self, messages: list[dict], model: str | None = None) -> str:
+        return self.chat(messages, response_format={"type": "json_object"}, model=model)
 
     def stream_chat(
         self,
         messages: list[dict],
         on_token: Callable[[str], None] | None = None,
         temperature: float | None = None,
+        model: str | None = None,
     ) -> str:
         temp = temperature if temperature is not None else self.temperature
         try:
             stream = self.client.chat.completions.create(
-                model=self.model,
+                model=model or self.model,
                 messages=messages,
                 temperature=temp,
                 stream=True,
