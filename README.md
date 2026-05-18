@@ -2,6 +2,11 @@
 
 > 输入一句话产品想法，AI 自动生成符合大厂规范的完整 PRD 文档。
 
+[![Hugging Face Spaces](https://img.shields.io/badge/Hugging%20Face-Spaces-blue?logo=huggingface)](https://huggingface.co/spaces/tina-su/prd-generator)
+[![GitHub](https://img.shields.io/badge/GitHub-Repo-black?logo=github)](https://github.com/xyy77/prd-generator)
+
+**在线体验**：https://huggingface.co/spaces/tina-su/prd-generator
+
 基于 **RAG + LangGraph** 构建，结合历史优秀 PRD 案例知识库，通过 3 阶段并行工作流生成规范的产品需求文档。
 
 ## 功能特性
