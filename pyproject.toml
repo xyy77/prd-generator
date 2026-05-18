@@ -1,0 +1,11 @@
+[project]
+name = "prd-generator"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: marks tests that require real API access (deselect with '-m \"not integration\"')",
+]

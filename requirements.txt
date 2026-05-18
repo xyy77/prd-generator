@@ -1,0 +1,42 @@
+# Core Workflow
+langgraph==0.2.55
+langchain==0.3.13
+langchain-community==0.3.13
+langchain-core==0.3.28
+
+# Vector Database
+chromadb==0.5.23
+
+# Embeddings
+sentence-transformers==3.3.1
+
+# LLM Client (OpenAI-compatible, for DeepSeek)
+openai==1.61.1
+
+# Web UI
+streamlit==1.41.1
+
+# Config & Validation
+python-dotenv==1.0.1
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Document Processing
+python-docx==1.1.2
+PyMuPDF==1.25.1
+markdown==3.7
+
+# PDF Export
+weasyprint==63.1
+
+# Mermaid in Streamlit
+streamlit-mermaid==0.1.0
+
+# Utilities
+tiktoken==0.8.0
+rich==13.9.4
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
