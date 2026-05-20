@@ -21,11 +21,32 @@ class WorkflowState(TypedDict, total=False):
     # Messages (for LangGraph compatibility)
     messages: Annotated[list, add_messages]
 
-    # Stage outputs
+    # Stage outputs (classic pipeline)
     requirement_analysis: dict[str, Any]
     architecture_design: dict[str, Any]
     process_flow: dict[str, Any]
     final_prd_json: dict[str, Any]
+
+    # Multi-agent outputs
+    feature_plan: dict[str, Any]
+    ux_design: dict[str, Any]
+    tech_advice: dict[str, Any]
+
+    # Multimodal
+    image_paths: list[str]
+    image_analysis: dict[str, Any]
+
+    # Reviewer
+    reviewer_score: int
+    reviewer_scores: dict[str, int]
+    reviewer_feedback: dict[str, str]
+    reviewer_summary: str
+
+    # Reflection control
+    reflection_round: int
+    reflection_max_rounds: int
+    agents_to_revise: list[str]
+    reflection_history: list[dict[str, Any]]
 
     # Control
     current_stage: str

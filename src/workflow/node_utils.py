@@ -22,21 +22,58 @@ def safe_json_extract(raw: str) -> dict:
     if start != -1 and end != -1 and end > start:
         raw = raw[start : end + 1]
 
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
+    # Multi-pass repair loop
+    for _ in range(3):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            raw = _repair_json(raw)
 
-    # Fix common LLM JSON issues
+    raise json.JSONDecodeError("safe_json_extract: unable to repair JSON", raw, 0)
+
+
+def _repair_json(raw: str) -> str:
+    """Apply successive JSON repair heuristics. Returns repaired string."""
+    # Remove trailing commas in objects/arrays
     raw = re.sub(r",\s*}", "}", raw)
     raw = re.sub(r",\s*]", "]", raw)
-    raw = re.sub(r"(?<!\\)\\(?=[^{}\"\[\]\\])", r"\\\\", raw)
 
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse JSON: %s\nRaw (first 500): %s", e, raw[:500])
-        raise
+    # Fix bad escape sequences (backslash before non-escape char)
+    raw = re.sub(r"\\(?=[^{}\"\[\]\\/bfnrtu])", r"\\\\", raw)
+
+    # Fix unquoted property names: {key: or , key: → {"key": or , "key":
+    raw = re.sub(r'([\{,]\s*)([a-zA-Z_一-鿿][a-zA-Z0-9_一-鿿]*)\s*:', r'\1"\2":', raw)
+
+    # Fix single-quoted strings (keys and values): 'xxx' → "xxx"
+    raw = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', raw)
+
+    # Fix missing commas between consecutive values
+    # "string" followed by " (newline or space)
+    raw = re.sub(r'("(?:\\.|[^"\\])*")\s*\n\s*"', r'\1,\n  "', raw)
+    # } or ] followed by "
+    raw = re.sub(r"([}\]])\s*\n\s*\"", r'\1,\n  "', raw)
+    # number/true/false/null followed by "
+    raw = re.sub(r"(\d+|true|false|null)\s*\n\s*\"", r'\1,\n  "', raw)
+    # } followed by { or [
+    raw = re.sub(r"([}\]])\s*\n\s*([\{[])", r"\1,\n  \2", raw)
+
+    # Balance unclosed braces/brackets
+    open_braces = raw.count("{") - raw.count("}")
+    open_brackets = raw.count("[") - raw.count("]")
+    raw = raw.rstrip(",\n\r\t ")
+    raw += "}" * max(0, open_braces)
+    raw += "]" * max(0, open_brackets)
+
+    # Remove trailing content after the last balanced closer
+    last_brace = raw.rfind("}")
+    last_bracket = raw.rfind("]")
+    last = max(last_brace, last_bracket)
+    if last != -1 and last < len(raw) - 1:
+        after = raw[last + 1:].strip()
+        if after and not after.startswith((",", "}", "]")):
+            raw = raw[:last + 1]
+
+    return raw
 
 
 def llm_call_with_logging(

@@ -1,0 +1,182 @@
+[
+  {
+    "product_idea": "一个帮助职场新人做职业规划的AI助手，根据用户技能和目标推荐学习路径，并生成个性化周计划",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含职场新人、转行者等角色",
+      "功能需求应涉及技能评估、路径推荐、计划生成",
+      "应有学习进度跟踪和反馈机制",
+      "技术方案应包含推荐算法和数据模型",
+      "应有用户隐私和数据安全考量"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "analytics_and_iteration"]
+  },
+  {
+    "product_idea": "一个面向大学生的校园二手交易小程序，支持发布、浏览、聊天、线下交易",
+    "category": "social",
+    "gold_checklist": [
+      "用户画像应包含买家、卖家、管理员",
+      "功能需求应包含商品发布、搜索筛选、即时通讯、交易管理",
+      "应有信用评价和举报机制",
+      "技术方案应考虑消息推送和高并发",
+      "应有交易安全和风控措施"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个AI驱动的智能客服机器人，能理解自然语言，支持多轮对话，可接入企业微信和钉钉",
+    "category": "ai_apps",
+    "gold_checklist": [
+      "应定义机器人的能力边界和转人工策略",
+      "功能需求应包含意图识别、知识库管理、多渠道接入",
+      "非功能需求应明确响应时间和准确率要求",
+      "技术架构应包含NLP/LLM模块、知识库、对话管理",
+      "应有对话效果评估和持续优化方案"
+    ],
+    "expected_modules": ["functional_requirements", "non_functional_requirements", "tech_architecture", "analytics_and_iteration"]
+  },
+  {
+    "product_idea": "一个面向小微商家的进销存管理SaaS工具，支持库存管理、销售统计、供应商管理",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含个体商户、小店店主等",
+      "功能需求应覆盖进货、销售、库存、报表四大模块",
+      "应有数据导出和备份功能",
+      "技术方案应包含权限管理和数据隔离",
+      "应考虑多终端适配（PC/手机）"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个基于用户兴趣图谱的内容推荐社区，支持图文、短视频、直播三种内容形态",
+    "category": "social",
+    "gold_checklist": [
+      "用户画像应区分内容消费者和创作者",
+      "功能需求应包含推荐算法、内容生产工具、互动体系",
+      "应有内容审核和社区治理机制",
+      "技术架构应包含推荐引擎、内容分发、实时处理",
+      "应有创作者激励和商业化闭环"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "analytics_and_iteration"]
+  },
+  {
+    "product_idea": "一个面向健身爱好者的AI私教App，能根据用户体测数据生成个性化训练计划和营养建议",
+    "category": "ai_apps",
+    "gold_checklist": [
+      "用户画像应包含不同健身水平的人群",
+      "功能需求应包含体测录入、计划生成、动作指导、饮食记录",
+      "应有运动安全和风险提示",
+      "技术方案应包含AI模型、数据采集接口和健康数据存储",
+      "应考虑可穿戴设备数据接入"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个B2B企业采购管理平台，支持询价、比价、合同管理、供应商评估",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含采购员、审批人、供应商",
+      "功能需求应覆盖询价、比价、审批流、合同管理、供应商评分",
+      "应有严格的权限体系和审批流程",
+      "技术方案应包含工作流引擎和电子签章集成",
+      "应考虑数据安全和合规要求"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "non_functional_requirements"]
+  },
+  {
+    "product_idea": "一个线上问诊平台，连接患者与医生，支持图文问诊、视频问诊、处方开具和药品配送",
+    "category": "ai_apps",
+    "gold_checklist": [
+      "用户画像应包含患者、医生、药师、平台管理员",
+      "功能需求应包含预约、问诊、处方、支付、配送",
+      "应有严格的医疗合规和数据隐私保护",
+      "技术方案应包含视频通话、电子病历、支付系统",
+      "应明确医疗风险和责任边界"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "risks_and_mitigation", "non_functional_requirements"]
+  },
+  {
+    "product_idea": "一个面向远程团队的在线白板协作工具，支持实时绘图、便签、思维导图、投票",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含产品经理、设计师、工程师等协作角色",
+      "功能需求应包含实时协作、多种图形工具、会议集成",
+      "非功能需求应明确并发人数和同步延迟",
+      "技术方案应包含CRDT/OT算法、WebSocket连接管理",
+      "应考虑跨时区协作和离线编辑"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "non_functional_requirements", "tech_architecture"]
+  },
+  {
+    "product_idea": "一个智能旅行规划助手，根据用户预算、偏好、时间生成个性化旅行攻略，包含交通、住宿、景点、美食推荐",
+    "category": "ai_apps",
+    "gold_checklist": [
+      "用户画像应包含不同旅行风格的人群（背包客/家庭游/奢华游）",
+      "功能需求应包含行程生成、实时调整、费用统计、离线访问",
+      "应有地图集成和实时交通信息",
+      "技术方案应包含推荐算法、外部数据聚合、位置服务",
+      "应考虑旅行安全提醒和应急处理"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个宠物社区App，包含宠物日常记录、健康管理、宠物社交、周边服务推荐",
+    "category": "social",
+    "gold_checklist": [
+      "用户画像应包含养宠新手、资深宠物主、宠物服务商家",
+      "功能需求应包含宠物档案、成长记录、社区互动、服务发现",
+      "应有宠物健康知识库和兽医在线咨询",
+      "技术方案应包含图片识别（品种识别）、LBS推荐",
+      "应考虑内容审核和虚假信息治理"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个面向中小企业的财务记账工具，支持发票识别、自动记账、税务申报辅助、财务报表生成",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含企业主、财务人员、代账会计",
+      "功能需求应包含发票OCR、智能分类、报表生成、税务计算",
+      "应有数据加密和备份机制",
+      "技术方案应包含OCR引擎、会计规则引擎、数据持久化",
+      "应符合国家财税法规要求"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "non_functional_requirements", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个在线教育平台，支持直播课、录播课、题库练习、学习进度跟踪、证书颁发",
+    "category": "ai_apps",
+    "gold_checklist": [
+      "用户画像应包含学生、教师、机构管理员",
+      "功能需求应包含课程管理、直播互动、作业批改、学习分析",
+      "非功能需求应明确直播并发和回放存储",
+      "技术方案应包含视频流媒体、题库引擎、学习分析",
+      "应有内容版权保护机制"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "non_functional_requirements", "tech_architecture"]
+  },
+  {
+    "product_idea": "一个智能家居控制中枢App，统一管理照明、安防、温控、家电等设备，支持场景联动和语音控制",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含科技爱好者、家庭用户、安防关注者",
+      "功能需求应包含设备管理、场景编排、语音控制、自动化规则",
+      "非功能需求应明确设备响应延迟和离线可用性",
+      "技术方案应包含IoT协议适配、边缘计算、云端协同",
+      "应考虑设备兼容性和安全防护"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "non_functional_requirements", "tech_architecture", "risks_and_mitigation"]
+  },
+  {
+    "product_idea": "一个面向自由职业者的项目管理与结算工具，支持项目进度跟踪、工时记录、发票生成、客户管理",
+    "category": "tools",
+    "gold_checklist": [
+      "用户画像应包含设计师、开发者、咨询师等自由职业者",
+      "功能需求应包含项目管理、时间追踪、结算开票、客户CRM",
+      "应有数据可视化和收入分析",
+      "技术方案应包含支付集成和税务计算",
+      "应考虑多币种和多语言支持"
+    ],
+    "expected_modules": ["user_personas", "functional_requirements", "tech_architecture", "analytics_and_iteration"]
+  }
+]

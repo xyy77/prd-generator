@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     # History
     max_history: int = 5
 
+    # Vision (Qwen-VL via DashScope, or OpenAI/Anthropic)
+    vision_provider: str = "qwen"
+    vision_model: str = "qwen-vl-max"
+    dashscope_api_key: str = ""
+    zhipu_api_key: str = ""
+
+    # Multi-agent reflection
+    reflection_max_rounds: int = 2
+    reviewer_score_threshold: int = 80
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
