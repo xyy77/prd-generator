@@ -5,6 +5,7 @@ from src.workflow.multi_agent.agents.tech_advisor import tech_advisor_node
 from src.workflow.multi_agent.agents.reviewer import reviewer_node
 from src.workflow.multi_agent.agents.image_analyst import image_analyst_node
 from src.workflow.multi_agent.agents.revision_router import revision_router_node
+from src.workflow.multi_agent.agents.planner import planner_node
 
 AGENT_NODE_MAP = {
     "requirements_analyst": requirements_analyst_node,

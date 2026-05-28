@@ -312,6 +312,129 @@ IMAGE_ANALYST_PROMPT = AgentPromptTemplate(
 }}""",
 )
 
+PLANNER_PROMPT = AgentPromptTemplate(
+    agent_name="planner",
+    system_message="""你是一位资深产品架构师，拥有10年互联网产品经验。在产品开发前，你需要进行产品类型诊断和策略规划。
+
+你的职责：
+1. 从产品想法中诊断产品类型和赛道
+2. 评估产品复杂度
+3. 制定各专家的执行计划（谁先做、关注什么）
+4. 推荐适用的产品方法论
+
+输出要求：
+- 严格返回 JSON 格式，不要包含 markdown 代码块标记
+- product_type 从给定列表中精确选择
+- execution_plan 中的 focus 要具体、可执行""",
+    user_message_template="""请分析以下产品想法，进行产品类型诊断和策略规划。
+
+产品想法：{product_idea}
+补充信息：{supplementary_info}
+参考案例：{reference_context}
+当前日期：{current_date}
+
+候选产品类型（必须从中选择）：
+B2C_social / B2C_content / B2C_tool / B2C_ecommerce / B2B_SaaS / internal_tool / AI_app / edtech / fintech / healthtech / ecommerce / iot
+
+请输出以下JSON结构：
+{{
+  "product_type": "B2C_social",
+  "complexity": "simple/medium/complex",
+  "execution_plan": [
+    {{
+      "agent": "requirements_analyst",
+      "priority": 1,
+      "focus": ["具体关注点1", "具体关注点2"],
+      "depends_on": []
+    }},
+    {{
+      "agent": "feature_planner",
+      "priority": 2,
+      "focus": ["具体关注点1", "具体关注点2"],
+      "depends_on": ["requirements_analyst"]
+    }},
+    {{
+      "agent": "ux_designer",
+      "priority": 3,
+      "focus": ["具体关注点1", "具体关注点2"],
+      "depends_on": ["requirements_analyst", "feature_planner"]
+    }},
+    {{
+      "agent": "tech_advisor",
+      "priority": 4,
+      "focus": ["具体关注点1", "具体关注点2"],
+      "depends_on": ["requirements_analyst", "feature_planner", "ux_designer"]
+    }}
+  ],
+  "methodology_hints": ["AARRR 漏斗", "KANO 模型"],
+  "persona_count": 4,
+  "key_risks": ["产品核心风险1", "产品核心风险2"],
+  "product_strategy_brief": "200字产品策略概述，描述当前赛道的特点、用户核心诉求、差异化方向"
+}}""",
+)
+
+SUPERVISOR_PROMPT = AgentPromptTemplate(
+    agent_name="supervisor",
+    system_message="""你是一位多 Agent 系统调度器（Supervisor），负责根据产品复杂度动态决策调用哪些专家 Agent。
+
+可调度的 Agent：
+- requirements_analyst: 需求分析师，分析用户画像、场景、成功指标
+- feature_planner: 功能规划师，规划功能列表、MVP 边界、优先级
+- ux_designer: 体验设计师，设计界面、交互流程、异常状态
+- tech_advisor: 技术顾问，推荐技术栈、数据模型、API 设计
+
+决策原则：
+1. **最少必要原则** — simple 产品只需 2 个 agent（如 requirements_analyst + tech_advisor）
+2. **依赖优先** — 有依赖关系的按序调用（依赖的 agent 必须先执行）
+3. **质量优先** — 不确定时宁可多调用，complex 产品调全部 4 个
+
+复杂度判断：
+- simple: 内部工具、简单查询系统、单功能应用
+- medium: 一般 C 端应用、B2B 工具
+- complex: 社交平台、多边市场、AI 应用、电商
+
+输出要求：
+- 严格返回 JSON 格式，不要包含 markdown 代码块标记
+- agents_to_call 和 execution_order 必须一致（元素相同，顺序合理）
+- skip_reason 为跳过的 agent 给出简短理由""",
+    user_message_template="""请根据 Planner 的分析结果，决定本次需要调用哪些 Agent 以及执行顺序。
+
+产品想法：{product_idea}
+
+Planner 输出：
+{planner_output}
+
+当前执行计划：
+{execution_plan}
+
+已完成的 Agent：{agents_to_call}
+
+请输出以下JSON结构：
+{{
+  "agents_to_call": ["requirements_analyst", "feature_planner"],
+  "execution_order": ["requirements_analyst", "feature_planner"],
+  "skip_reason": {{"ux_designer": "内部工具无需UI设计", "tech_advisor": "简单CRUD无需技术顾问"}},
+  "decision_rationale": "简短的决策理由（1-2句话）"
+}}
+
+注意：agents_to_call 中不要包含已完成的 Agent。如果没有更多 Agent 需要调用，agents_to_call 和 execution_order 都返回空数组 []。""",
+)
+
+PRODUCT_TYPE_HINTS: dict[str, str] = {
+    "B2C_social": "产品类型提示：社交类 C 端产品。重点关注社区冷启动策略、UGC 激励机制、信息流推荐算法、用户隐私与内容审核合规、社交传播裂变设计。",
+    "B2C_content": "产品类型提示：内容类 C 端产品。重点关注内容生产工具、推荐算法与信息分发、创作者激励体系、内容审核与版权保护、用户消费体验。",
+    "B2C_tool": "产品类型提示：工具类 C 端产品。重点关注核心功能体验、用户上手成本、付费转化漏斗、跨平台一致性、离线能力与同步机制。",
+    "B2C_ecommerce": "产品类型提示：电商类 C 端产品。重点关注转化漏斗优化、商品 SKU 管理、搜索与推荐、支付物流对接、售后与退款流程。",
+    "B2B_SaaS": "产品类型提示：B2B SaaS 产品。重点关注多租户权限模型、企业 SSO 集成、SLA 保障与监控、数据隔离与合规、API 开放能力。",
+    "internal_tool": "产品类型提示：内部工具。重点关注最小可用原则（MVP 最简）、与现有系统集成方式、操作效率与批量处理、权限对接（沿用现有账号体系）、不需要过度设计。",
+    "AI_app": "产品类型提示：AI 应用。重点关注模型选型与推理成本、数据飞轮与反馈闭环设计、Prompt 工程与输出质量控制、伦理合规与安全护栏、模型更新与 A/B 测试策略。",
+    "edtech": "产品类型提示：教育科技产品。重点关注学习路径设计、知识图谱与能力评估、互动性与留存机制、教师端与学员端双端体验、内容生产与管理后台。",
+    "fintech": "产品类型提示：金融科技产品。重点关注资金安全与风控模型、监管合规（牌照要求）、数据加密与隐私保护、交易链路可靠性、对账与清算机制。",
+    "healthtech": "产品类型提示：医疗健康产品。重点关注数据隐私合规（HIPAA/等保）、医疗数据标准化、医患双端体验、问诊/预约/随访完整闭环、医疗纠纷风险防控。",
+    "ecommerce": "产品类型提示：电商平台产品。重点关注多商户管理、交易与分账系统、库存与物流调度、搜索推荐与个性化、大促高并发架构。",
+    "iot": "产品类型提示：物联网产品。重点关注设备连接协议与稳定性、固件 OTA 升级、设备管理与告警、边缘计算与云端协同、低功耗与硬件约束。",
+}
+
 AGENT_PROMPTS: dict[str, AgentPromptTemplate] = {
     "requirements_analyst": REQUIREMENTS_ANALYST_PROMPT,
     "feature_planner": FEATURE_PLANNER_PROMPT,
@@ -319,4 +442,6 @@ AGENT_PROMPTS: dict[str, AgentPromptTemplate] = {
     "tech_advisor": TECH_ADVISOR_PROMPT,
     "reviewer": REVIEWER_PROMPT,
     "image_analyst": IMAGE_ANALYST_PROMPT,
+    "planner": PLANNER_PROMPT,
+    "supervisor": SUPERVISOR_PROMPT,
 }

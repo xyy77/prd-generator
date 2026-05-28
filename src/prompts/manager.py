@@ -1,8 +1,15 @@
 from src.prompts.templates import STAGE_PROMPTS, StagePromptTemplate
-from src.prompts.multi_agent_prompts import AGENT_PROMPTS, AgentPromptTemplate
+from src.prompts.multi_agent_prompts import AGENT_PROMPTS, PRODUCT_TYPE_HINTS, AgentPromptTemplate
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _get_product_type_hint(product_type: str) -> str:
+    """Get product type hint for injection into agent prompts."""
+    if not product_type:
+        return ""
+    return PRODUCT_TYPE_HINTS.get(product_type, "")
 
 
 class PromptManager:
@@ -69,6 +76,11 @@ class PromptManager:
         ux_design: str = "",
         tech_advice: str = "",
         image_analysis: str = "",
+        product_type: str = "",
+        planner_output: str = "",
+        execution_plan: str = "",
+        agents_to_call: str = "",
+        user_feedback: str = "",
     ) -> list[dict]:
         from datetime import date
 
@@ -84,6 +96,15 @@ class PromptManager:
             current_date=date.today().strftime("%Y-%m-%d"),
         )
 
+        if agent == "planner":
+            return self.build_messages(template, **kwargs)
+
+        if agent == "supervisor":
+            kwargs["planner_output"] = planner_output or "{}"
+            kwargs["execution_plan"] = execution_plan or "[]"
+            kwargs["agents_to_call"] = agents_to_call or "[]"
+            return self.build_messages(template, **kwargs)
+
         if agent in ("feature_planner", "ux_designer", "tech_advisor", "reviewer"):
             kwargs["requirement_analysis"] = requirement_analysis or "{}"
         if agent in ("ux_designer", "tech_advisor", "reviewer"):
@@ -93,4 +114,18 @@ class PromptManager:
         if agent == "reviewer":
             kwargs["tech_advice"] = tech_advice or "{}"
 
-        return self.build_messages(template, **kwargs)
+        messages = self.build_messages(template, **kwargs)
+
+        # Inject user feedback for worker agents (revision mode)
+        if user_feedback and agent in ("requirements_analyst", "feature_planner", "ux_designer", "tech_advisor"):
+            messages[1]["content"] += (
+                f"\n\n【用户修改意见】\n{user_feedback}\n\n"
+                "请根据以上修改意见调整你的输出。保留原输出中合理且不冲突的部分，重点修改与意见相关的部分。"
+            )
+
+        # Inject product type hint for worker agents
+        hint = _get_product_type_hint(product_type)
+        if hint and agent in ("requirements_analyst", "feature_planner", "ux_designer", "tech_advisor"):
+            messages[1]["content"] += f"\n\n{hint}"
+
+        return messages

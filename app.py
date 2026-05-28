@@ -22,7 +22,7 @@ from src.output.exporter import export_to_markdown_file, generate_shareable_file
 from src.output.json_to_markdown import convert_to_prd_markdown
 from src.utils.logger import setup_logging
 from src.workflow.graph import run_workflow, run_revision, run_single_stage
-from src.workflow.multi_agent.graph import run_multi_agent_workflow
+from src.workflow.multi_agent.graph import run_multi_agent_workflow, run_multi_agent_revision
 from src.workflow.state import STAGE_ORDER
 
 setup_logging()
@@ -68,7 +68,11 @@ if "reviewer_score_threshold" not in st.session_state:
 def init_rag() -> Retriever:
     embedder = EmbeddingService()
     store = ChromaStore()
-    return Retriever(store, embedder)
+    retriever = Retriever(store, embedder)
+    retriever.ensure_methodology_loaded()
+    if retriever.store.count() > 0:
+        retriever.build_graph_index()
+    return retriever
 
 
 def _count_unique_sources() -> int:
@@ -107,98 +111,134 @@ def _get_kb_sources() -> list[str]:
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.header("⚙️ 模型配置")
-
-        # Model selector
-        available = settings.available_models
-        current_idx = available.index(st.session_state.selected_model) if st.session_state.selected_model in available else 0
-        selected = st.selectbox(
-            "选择 LLM 模型",
-            available,
-            index=current_idx,
-            key="sidebar_model_select",
+        # ── Compact sidebar CSS ──
+        st.markdown(
+            """
+<style>
+[data-testid="stSidebar"] h2 { font-size: 0.92rem; padding-top: 0.3rem; margin-bottom: 0.2rem; letter-spacing: 0.02em; }
+[data-testid="stSidebar"] hr { margin: 0.3rem 0; opacity: 0.3; }
+[data-testid="stSidebar"] .stSelectbox label, [data-testid="stSidebar"] .stSlider label { font-size: 0.82rem; margin-bottom: 0; }
+[data-testid="stSidebar"] .stSelectbox { margin-bottom: 0.3rem; }
+[data-testid="stSidebar"] .stSlider { padding-top: 0; margin-bottom: 0.3rem; }
+[data-testid="stSidebar"] .stButton button { padding: 0.25rem 0.5rem; font-size: 0.78rem; border-radius: 6px; }
+[data-testid="stSidebar"] .stMetric label { font-size: 0.7rem; }
+[data-testid="stSidebar"] .stMetric [data-testid="stMetricValue"] { font-size: 1.1rem; }
+[data-testid="stSidebar"] [data-testid="stExpander"] { border: 1px solid rgba(128,128,128,0.15); border-radius: 6px; margin-bottom: 0.3rem; }
+[data-testid="stSidebar"] .stCaption { font-size: 0.75rem; color: #999; }
+[data-testid="stSidebar"] .stFileUploader { margin-bottom: 0.3rem; }
+[data-testid="stSidebar"] .stToggle { margin-bottom: 0.3rem; }
+</style>
+""",
+            unsafe_allow_html=True,
         )
-        st.session_state.selected_model = selected
 
-        # Temperature slider
-        temp = st.slider(
-            "LLM 温度",
-            min_value=settings.llm_temperature_min,
-            max_value=settings.llm_temperature_max,
-            value=st.session_state.temperature,
-            step=0.05,
-            key="sidebar_temperature_slider",
-        )
-        st.session_state.temperature = temp
+        # ── Section 1: Generation settings ──
+        st.header("⚙️ 生成设置")
 
-        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            available = settings.available_models
+            current_idx = available.index(st.session_state.selected_model) if st.session_state.selected_model in available else 0
+            selected = st.selectbox(
+                "模型",
+                available,
+                index=current_idx,
+                key="sidebar_model_select",
+            )
+            st.session_state.selected_model = selected
+        with col2:
+            temp = st.slider(
+                "温度",
+                min_value=settings.llm_temperature_min,
+                max_value=settings.llm_temperature_max,
+                value=st.session_state.temperature,
+                step=0.05,
+                help="0=确定性，1=高创造性。PRD 推荐 0.3-0.6",
+                key="sidebar_temperature_slider",
+            )
+            st.session_state.temperature = temp
 
-        # Multi-agent mode toggle
-        st.header("🤖 生成模式")
         use_ma = st.toggle(
-            "多智能体协作模式",
+            "🤖 多智能体协作模式",
             value=st.session_state.use_multi_agent,
-            help="启用后由4个专业Agent（需求分析师、功能规划师、体验设计师、技术顾问）+ 评审官协作生成，支持反思循环。关闭则使用经典3阶段流水线。",
+            help="4个专业Agent + 评审官协作，支持反思循环。关闭则使用经典3阶段流水线。",
             key="sidebar_multi_agent_toggle",
         )
         st.session_state.use_multi_agent = use_ma
 
         if use_ma:
-            st.session_state.reflection_max_rounds = st.slider(
-                "反思最大轮次",
-                min_value=1,
-                max_value=3,
-                value=st.session_state.reflection_max_rounds,
-                step=1,
-                key="sidebar_reflection_rounds",
-            )
-            st.session_state.reviewer_score_threshold = st.slider(
-                "评审通过阈值",
-                min_value=60,
-                max_value=95,
-                value=st.session_state.reviewer_score_threshold,
-                step=5,
-                key="sidebar_reviewer_threshold",
-            )
+            r1, r2 = st.columns(2)
+            with r1:
+                st.session_state.reflection_max_rounds = st.slider(
+                    "反思轮次",
+                    min_value=1, max_value=3,
+                    value=st.session_state.reflection_max_rounds,
+                    step=1,
+                    help="评分不达标时回退修正的最大轮次",
+                    key="sidebar_reflection_rounds",
+                )
+            with r2:
+                st.session_state.reviewer_score_threshold = st.slider(
+                    "通过阈值",
+                    min_value=60, max_value=95,
+                    value=st.session_state.reviewer_score_threshold,
+                    step=5,
+                    help="评分低于此值触发反思，大厂标准 80",
+                    key="sidebar_reviewer_threshold",
+                )
 
         st.divider()
 
-        # Image upload (for multi-modal)
-        st.header("🖼️ 参考图片（可选）")
-        uploaded_images = st.file_uploader(
-            "手绘流程图 / 竞品截图 / 用户旅程草图（最多3张）",
-            type=["png", "jpg", "jpeg", "webp"],
+        # ── Section 2: Reference materials ──
+        st.header("📤 参考资料")
+        st.caption("请上传参考图片（手绘图/竞品截图/用户旅程）或示例 PRD 文档（MD/PDF/DOCX），系统将自动识别类型并处理。")
+        all_uploads = st.file_uploader(
+            "点击上传图片或文档",
+            type=["png", "jpg", "jpeg", "webp", "md", "pdf", "docx"],
             accept_multiple_files=True,
-            key="sidebar_image_uploader",
+            help="图片用于多模态视觉分析（需多智能体模式）；文档自动分块索引到知识库，PDF内嵌图片也会被提取。",
+            key="sidebar_all_uploads",
         )
-        if uploaded_images and st.session_state.use_multi_agent:
-            _process_image_uploads(uploaded_images)
-        elif uploaded_images and not st.session_state.use_multi_agent:
-            st.caption("请先开启多智能体模式")
+
+        if all_uploads:
+            images = [f for f in all_uploads if f.type.startswith("image/")]
+            docs = [f for f in all_uploads if not f.type.startswith("image/")]
+            if images and st.session_state.use_multi_agent:
+                _process_image_uploads(images)
+            elif images and not st.session_state.use_multi_agent:
+                st.caption("⚠️ 图片分析需开启多智能体模式")
+            if docs:
+                _process_uploads(docs)
 
         if st.session_state.image_paths:
-            st.caption(f"已上传 {len(st.session_state.image_paths)} 张图片")
             for p in st.session_state.image_paths:
-                st.caption(f"📷 {Path(p).name}")
+                st.caption(f"🖼️ {Path(p).name}")
 
         st.divider()
 
-        # Knowledge base
-        st.header("📚 知识库")
+        # ── Section 3: Knowledge base (collapsible) ──
+        kb_empty = False
         try:
             retriever = init_rag()
             chunk_count = retriever.store.count()
             source_count = _count_unique_sources()
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("文档片段", chunk_count)
-            with col_b:
-                st.metric("源文件", source_count)
+            kb_empty = chunk_count == 0
+        except Exception:
+            chunk_count, source_count, kb_empty = 0, 0, True
 
-            if chunk_count == 0:
+        with st.expander(
+            f"📚 知识库 · {chunk_count} 片段",
+            expanded=kb_empty,
+        ):
+            if kb_empty:
                 st.warning("知识库为空，请导入样本或上传文件")
+            else:
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("文档片段", chunk_count)
+                with col_b:
+                    st.metric("源文件", source_count)
 
-            # KB management buttons
             kb_col1, kb_col2, kb_col3 = st.columns(3)
             with kb_col1:
                 if st.button("🔄 重新加载", use_container_width=True, key="kb_reload"):
@@ -210,60 +250,52 @@ def render_sidebar() -> None:
                 if st.button("🔨 重构", use_container_width=True, key="kb_rebuild"):
                     _rebuild_knowledge_base()
 
-            # Source file list with delete
             sources = _get_kb_sources()
             if sources:
-                with st.expander(f"已索引文件 ({len(sources)})"):
-                    for src in sources:
-                        scol1, scol2 = st.columns([4, 1])
-                        with scol1:
-                            st.caption(f"📄 {src}")
-                        with scol2:
-                            if st.button("✕", key=f"del_{src}"):
+                for src in sources:
+                    scol1, scol2 = st.columns([4, 1])
+                    with scol1:
+                        st.caption(f"📄 {src}")
+                    with scol2:
+                        if st.button("✕", key=f"del_{src}"):
+                            try:
+                                retriever = init_rag()
                                 retriever.store.delete_by_source(src)
-                                st.rerun()
-        except Exception as e:
-            st.error(f"知识库连接失败: {e}")
+                            except Exception:
+                                pass
+                            st.rerun()
 
-        st.divider()
-
-        # File upload
-        st.header("📤 上传 PRD 示例")
-        uploaded = st.file_uploader(
-            "支持 MD / PDF / DOCX",
-            type=["md", "pdf", "docx"],
-            accept_multiple_files=True,
-            key="sidebar_file_uploader",
-        )
-        if uploaded:
-            _process_uploads(uploaded)
-
-        st.divider()
-
-        # Generation history
-        st.header("📜 历史记录")
+        # ── Section 4: History (collapsible) ──
         history = st.session_state.generation_history
-        if history:
-            for i, entry in enumerate(reversed(history)):
-                label = entry.get("product_name", f"第{i+1}次生成")
-                if st.button(f"📋 {label}", use_container_width=True, key=f"hist_{i}"):
-                    st.session_state.workflow_result = entry["result"]
-                    st.rerun()
-        else:
-            st.caption("暂无历史记录")
+        with st.expander(
+            f"📜 历史记录 · {len(history)}",
+            expanded=bool(history),
+        ):
+            if history:
+                for i, entry in enumerate(reversed(history)):
+                    label = entry.get("product_name", f"第{i+1}次生成")
+                    if st.button(f"📋 {label}", use_container_width=True, key=f"hist_{i}"):
+                        st.session_state.workflow_result = entry["result"]
+                        st.rerun()
+            else:
+                st.caption("暂无历史记录")
 
-        st.divider()
         st.caption("Made with LangGraph + DeepSeek")
 
 
 def _process_uploads(uploaded_files: list) -> None:
-    """Save uploaded files and add to knowledge base."""
+    """Save uploaded files, add to knowledge base, and extract embedded images."""
+    from src.rag.loader import extract_document_images
+
     retriever = init_rag()
     chunker = RecursiveCharacterChunker()
     uploads_dir = settings.uploads_dir
     uploads_dir.mkdir(parents=True, exist_ok=True)
+    images_dir = settings.uploads_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
 
     total_added = 0
+    total_images = 0
     for f in uploaded_files:
         if f.name in st.session_state.uploaded_files:
             continue
@@ -274,7 +306,7 @@ def _process_uploads(uploaded_files: list) -> None:
             fh.write(f.getbuffer())
         st.session_state.uploaded_files.append(f.name)
 
-        # Load and chunk
+        # Load and chunk text
         try:
             docs = load_document(str(save_path))
             if docs:
@@ -285,9 +317,29 @@ def _process_uploads(uploaded_files: list) -> None:
                     total_added += len(chunks)
         except Exception as e:
             st.error(f"处理 {f.name} 失败: {e}")
+            continue
 
+        # Extract embedded images from PDF
+        if f.type == "application/pdf":
+            try:
+                extracted = extract_document_images(str(save_path), str(images_dir))
+                for img_path in extracted:
+                    if len(st.session_state.image_paths) >= 3:
+                        break
+                    if img_path not in st.session_state.image_paths:
+                        st.session_state.image_paths.append(img_path)
+                        total_images += 1
+            except Exception as e:
+                logger.warning("Failed to extract images from %s: %s", f.name, e)
+
+    msgs = []
     if total_added > 0:
-        st.toast(f"✅ 已添加 {total_added} 个文档片段")
+        msgs.append(f"已添加 {total_added} 个文档片段")
+    if total_images > 0:
+        msgs.append(f"从 PDF 提取 {total_images} 张图片")
+    if msgs:
+        st.toast("✅ " + "；".join(msgs))
+    if total_added > 0:
         st.rerun()
 
 
@@ -347,6 +399,15 @@ def _reload_knowledge_base() -> None:
                             total += len(chunks)
                 except Exception:
                     pass
+
+    # Re-load methodology
+    method_chunks = retriever.ensure_methodology_loaded()
+    if method_chunks:
+        total += method_chunks
+
+    # Rebuild graph index
+    if total > 0:
+        retriever.build_graph_index(force=True)
 
     st.toast(f"🔄 知识库已重新加载，共 {total} 个片段")
     st.rerun()
@@ -412,7 +473,12 @@ def main() -> None:
 
     # --- Mode indicator ---
     if st.session_state.use_multi_agent:
-        st.info("🤖 **多智能体协作模式** — 4个专业Agent + 评审官协作生成，支持反思循环")
+        st.info(
+            "🤖 **多智能体协作模式** — Planner 识别产品类型 → Supervisor 智能调度 → "
+            "4 个专家 Agent（需求分析师、功能规划师、UX 设计师、技术顾问）协作生成 → Reviewer 评审把关"
+        )
+    else:
+        st.info("📋 **经典流水线模式** — 需求分析 + 架构设计（并行）→ 流程梳理 → 文档定稿，3 阶段依次执行")
     if st.session_state.image_paths:
         img_names = [Path(p).name for p in st.session_state.image_paths]
         st.caption(f"🖼️ 已上传参考图片：{', '.join(img_names)}")
@@ -435,7 +501,7 @@ def main() -> None:
         )
 
     # --- Generate ---
-    gen_col, _ = st.columns([1, 3])
+    gen_col, cap_col = st.columns([1, 3])
     with gen_col:
         btn_label = "🚀 生成 PRD (多智能体)" if st.session_state.use_multi_agent else "🚀 生成 PRD"
         generate_clicked = st.button(
@@ -445,6 +511,11 @@ def main() -> None:
             disabled=not product_idea,
             key="btn_generate",
         )
+    with cap_col:
+        if st.session_state.use_multi_agent:
+            st.caption("多 Agent 模式预计耗时 5-15 分钟，生成过程中可查看下方 CoT 面板了解实时进度。")
+        else:
+            st.caption("经典模式预计耗时 2-5 分钟。")
 
     if generate_clicked:
         if st.session_state.use_multi_agent:
@@ -542,23 +613,58 @@ def _render_markdown_with_mermaid(text: str) -> None:
 
 
 def _render_mermaid_diagram(code: str) -> None:
-    """Render a single Mermaid diagram using the Mermaid JS library."""
+    """Render a Mermaid diagram with dynamic height and click-to-enlarge."""
+    line_count = code.count("\n") + 1
+    height = max(300, line_count * 20 + 40)
+    safe_code = code.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
     html = f"""<!DOCTYPE html>
 <html>
 <head>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>mermaid.initialize({{startOnLoad:true, theme:'default'}});</script>
 <style>
-body {{ margin: 0; padding: 8px; display: flex; justify-content: center; }}
+body {{ margin: 0; padding: 8px; display: flex; justify-content: center; background: #fff; }}
+.mermaid {{ cursor: pointer; }}
+#mermaid-modal {{
+  display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center;
+}}
+#mermaid-modal.active {{ display: flex; }}
+#mermaid-modal .modal-content {{
+  background: #fff; padding: 20px; border-radius: 8px; max-width: 95vw; max-height: 95vh;
+  overflow: auto;
+}}
+#mermaid-modal .close-btn {{
+  position: absolute; top: 16px; right: 24px; color: #fff; font-size: 32px;
+  cursor: pointer; font-weight: bold;
+}}
 </style>
 </head>
 <body>
-<div class="mermaid">
-{code}
+<div class="mermaid" onclick="openModal()" title="点击放大">
+{safe_code}
 </div>
+<div id="mermaid-modal" onclick="closeModal(event)">
+  <span class="close-btn" onclick="closeModal(event)">&times;</span>
+  <div class="modal-content" id="modal-body"></div>
+</div>
+<script>
+function openModal() {{
+  var modal = document.getElementById('mermaid-modal');
+  var body = document.getElementById('modal-body');
+  body.innerHTML = '<div class="mermaid">' + document.querySelector('.mermaid').textContent + '</div>';
+  mermaid.init(undefined, body.querySelector('.mermaid'));
+  modal.classList.add('active');
+}}
+function closeModal(e) {{
+  if (e.target === document.getElementById('mermaid-modal') || e.target.classList.contains('close-btn')) {{
+    document.getElementById('mermaid-modal').classList.remove('active');
+  }}
+}}
+</script>
 </body>
 </html>"""
-    components.html(html, height=400, scrolling=False)
+    components.html(html, height=height, scrolling=False)
 
 
 def _run_multi_agent_pipeline(product_idea: str, supplementary_info: str) -> None:
@@ -577,14 +683,48 @@ def _run_multi_agent_pipeline(product_idea: str, supplementary_info: str) -> Non
     if image_paths:
         st.info(f"🖼️ 已上传 {len(image_paths)} 张参考图片，将在生成过程中进行视觉分析")
 
-    # Step 3: Run multi-agent workflow
+    # Step 3: Run multi-agent workflow with live CoT
+    from src.workflow.multi_agent.graph import NODE_DISPLAY_NAMES
+
     progress_bar = st.progress(0, text="多智能体协作生成中...")
-    stage_info = st.empty()
+    # Estimate total nodes: entry + planner + n agents + supervisor rounds + reviewer + synthesis
+    total_nodes = 12  # rough estimate
 
-    try:
-        stage_info.info("🤖 正在执行：图片分析 → 4 Agent 并行 → 评审官审核")
+    with st.status("🤖 多 Agent 协作生成中...", expanded=True) as status_container:
+        cot_log = st.empty()
+        node_count = 0
 
-        with st.spinner("正在多智能体协作生成 PRD..."):
+        def on_node(node_name: str, node_output: dict) -> None:
+            nonlocal node_count
+            node_count += 1
+            display_name = NODE_DISPLAY_NAMES.get(node_name, node_name)
+            extra = ""
+            if node_name == "node_planner":
+                pt = node_output.get("planner_output", {}).get("product_type", "")
+                cx = node_output.get("planner_output", {}).get("complexity", "")
+                if pt:
+                    extra = f" — 产品类型: {pt}, 复杂度: {cx}"
+            elif node_name == "node_supervisor":
+                agents = node_output.get("agents_to_call", [])
+                if agents:
+                    extra = f" — 调度: {' → '.join(agents)}"
+            elif node_name in ("node_requirements_analyst", "node_feature_planner",
+                               "node_ux_designer", "node_tech_advisor"):
+                if node_output.get("_reflexion_applied"):
+                    before = node_output.get("_reflexion_score_before", "?")
+                    extra = f" — 自评未达标({before}), 已修正"
+                else:
+                    extra = " — 已完成"
+            elif node_name == "node_reviewer":
+                score = node_output.get("reviewer_score", "?")
+                extra = f" — 评分: {score}/100"
+            cot_log.markdown(
+                f"| {display_name} | {extra} |\n|:---|:---|\n",
+                unsafe_allow_html=False,
+            )
+            progress_bar.progress(min(90, node_count * 8), text=f"执行中: {display_name}")
+
+        try:
             result = run_multi_agent_workflow(
                 product_idea=product_idea,
                 supplementary_info=supplementary_info,
@@ -594,44 +734,45 @@ def _run_multi_agent_pipeline(product_idea: str, supplementary_info: str) -> Non
                 temperature=st.session_state.temperature,
                 reflection_max_rounds=st.session_state.reflection_max_rounds,
                 reviewer_score_threshold=st.session_state.reviewer_score_threshold,
+                on_node_complete=on_node,
             )
-
-        progress_bar.progress(50, text="评审官审核中...")
-
-        if result.get("error_message"):
-            st.error(f"生成过程中出现错误: {result['error_message']}")
+        except Exception as e:
+            progress_bar.progress(100, text="❌ 生成失败")
+            st.error(f"生成失败: {e}")
             return
 
-        final_json = result.get("final_prd_json", {})
-        if not final_json:
-            st.error("生成失败：未能获得最终文档")
-            return
+        status_container.update(label="✅ 多 Agent 协作完成！", state="complete")
 
-        progress_bar.progress(80, text="生成 Markdown...")
+    progress_bar.progress(80, text="生成 Markdown...")
 
-        prd_markdown = convert_to_prd_markdown(final_json)
-        result["final_prd_markdown"] = prd_markdown
+    if result.get("error_message"):
+        st.error(f"生成过程中出现错误: {result['error_message']}")
+        return
 
-        progress_bar.progress(100, text="✅ 多智能体协作完成！")
-        st.session_state.workflow_result = result
+    final_json = result.get("final_prd_json", {})
+    if not final_json:
+        st.error("生成失败：未能获得最终文档")
+        return
 
-        # Save to history
-        product_name = final_json.get("version_record", {}).get("product_name", product_idea[:30])
-        st.session_state.generation_history.append({
-            "product_name": product_name,
-            "product_idea": product_idea,
-            "timestamp": __import__("datetime").datetime.now().isoformat(),
-            "result": result,
-        })
-        max_hist = settings.max_history
-        if len(st.session_state.generation_history) > max_hist:
-            st.session_state.generation_history = st.session_state.generation_history[-max_hist:]
+    prd_markdown = convert_to_prd_markdown(final_json)
+    result["final_prd_markdown"] = prd_markdown
 
-        st.rerun()
+    progress_bar.progress(100, text="✅ 多智能体协作完成！")
+    st.session_state.workflow_result = result
 
-    except Exception as e:
-        progress_bar.progress(100, text="❌ 生成失败")
-        st.error(f"生成失败: {e}")
+    # Save to history
+    product_name = final_json.get("version_record", {}).get("product_name", product_idea[:30])
+    st.session_state.generation_history.append({
+        "product_name": product_name,
+        "product_idea": product_idea,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "result": result,
+    })
+    max_hist = settings.max_history
+    if len(st.session_state.generation_history) > max_hist:
+        st.session_state.generation_history = st.session_state.generation_history[-max_hist:]
+
+    st.rerun()
 
 
 def _display_multi_agent_results() -> None:
@@ -772,8 +913,26 @@ def _display_multi_agent_results() -> None:
         rev_col, _ = st.columns([1, 3])
         with rev_col:
             if st.button("🔧 优化 PRD", type="primary", disabled=not revision_feedback, key="btn_revise_ma"):
-                with st.spinner("正在根据修改意见优化 PRD..."):
-                    revised = run_revision(result, revision_feedback)
+                from src.workflow.multi_agent.graph import NODE_DISPLAY_NAMES as _REV_NAMES
+
+                with st.status("🔧 正在根据修改意见优化 PRD...", expanded=True) as rev_status:
+                    rev_log = st.empty()
+
+                    def on_rev_node(node_name: str, node_output: dict) -> None:
+                        display_name = _REV_NAMES.get(node_name, node_name)
+                        extra = ""
+                        if node_name == "node_reviewer":
+                            extra = f" — 评分: {node_output.get('reviewer_score', '?')}/100"
+                        elif node_name in ("node_requirements_analyst", "node_feature_planner",
+                                           "node_ux_designer", "node_tech_advisor"):
+                            extra = " — 已完成"
+                        rev_log.markdown(
+                            f"| {display_name} | {extra} |\n|:---|:---|\n",
+                            unsafe_allow_html=False,
+                        )
+
+                    revised = run_multi_agent_revision(result, revision_feedback, on_node_complete=on_rev_node)
+                    rev_status.update(label="✅ 修订完成！", state="complete")
                     revised_final = revised.get("final_prd_json", {})
                     if revised_final:
                         revised["final_prd_markdown"] = convert_to_prd_markdown(revised_final)

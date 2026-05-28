@@ -62,6 +62,107 @@ def run_agent_node(
         return {output_key: {}, "current_stage": agent_name, "error_message": str(e)}
 
 
+def _build_self_eval_messages(agent_name: str, output: dict) -> list[dict]:
+    """Build messages for self-evaluation."""
+    output_json = json.dumps(output, ensure_ascii=False)
+    eval_prompt = f"""请评估以下 {agent_name} 的输出质量（0-100分）。
+
+输出内容：
+{output_json[:4000]}
+
+评估标准：
+- 完整性：是否覆盖所有要求字段，内容是否充实
+- 具体性：是否给出可执行的具体内容而非泛泛而谈
+- 一致性：内容是否与产品想法一致，内部是否有矛盾
+
+返回 JSON: {{"score": 整数, "issues": ["具体问题1", "具体问题2"], "improvement_suggestions": ["改进建议1"]}}
+
+只输出 JSON，不要包含任何其他文字。"""
+    return [
+        {"role": "system", "content": "你是一位严格的质量评估专家。只输出JSON。"},
+        {"role": "user", "content": eval_prompt},
+    ]
+
+
+def _build_reflexion_correction_messages(
+    original_messages: list[dict],
+    draft_output: dict,
+    issues: list[str],
+) -> list[dict]:
+    """Build correction messages for reflexion self-improvement."""
+    issues_text = "\n".join(f"- {i}" for i in issues)
+    correction_prompt = f"""你之前的输出存在以下问题：
+
+{issues_text}
+
+请修正你的输出，确保：
+1. 内容完整、具体、可执行
+2. 所有字段都有实质内容（不要有空数组或占位文本）
+3. 各部分之间保持一致
+
+严格返回纯 JSON，不要包含 markdown 代码块标记或任何解释性文字。
+
+原始输出供参考：
+{json.dumps(draft_output, ensure_ascii=False)[:2000]}"""
+    return [
+        original_messages[0],
+        {"role": "user", "content": correction_prompt},
+    ]
+
+
+def run_agent_with_reflexion(
+    client,
+    messages: list[dict],
+    agent_name: str,
+    output_key: str,
+    model: str | None = None,
+    reflexion_threshold: int = 75,
+) -> dict:
+    """Run an agent with self-reflection: generate → self-evaluate → correct if needed."""
+    # 1. Initial generation
+    result = run_agent_node(client, messages, agent_name, output_key, model=model)
+    draft = result.get(output_key, {})
+
+    if not isinstance(draft, dict) or not draft:
+        logger.warning("Agent %s produced empty output, skipping reflexion", agent_name)
+        return result
+
+    # 2. Self-evaluation
+    try:
+        eval_messages = _build_self_eval_messages(agent_name, draft)
+        eval_raw = client.chat_with_json_mode(eval_messages, model=model)
+        eval_result = safe_json_extract(eval_raw)
+        score = eval_result.get("score", 0)
+
+        if isinstance(score, bool):
+            score = 0
+        if not isinstance(score, (int, float)):
+            score = 0
+
+        logger.info("Agent %s self-evaluation score: %s", agent_name, score)
+
+        # 3. If below threshold, self-correct (max 1 round)
+        if score < reflexion_threshold:
+            issues = eval_result.get("issues", [])
+            logger.info("Agent %s score %d < %d, triggering self-correction", agent_name, score, reflexion_threshold)
+            correction_msgs = _build_reflexion_correction_messages(messages, draft, issues)
+            raw2 = client.chat_with_json_mode(correction_msgs, model=model)
+            corrected = safe_json_extract(raw2)
+            if isinstance(corrected, dict) and corrected:
+                result[output_key] = corrected
+                result["_reflexion_applied"] = True
+                result["_reflexion_score_before"] = score
+            else:
+                logger.warning("Agent %s reflexion correction produced invalid output, keeping draft", agent_name)
+        else:
+            result["_reflexion_evaluated"] = True
+            result["_reflexion_score"] = score
+    except Exception as e:
+        logger.warning("Agent %s reflexion failed: %s, keeping original output", agent_name, e)
+
+    return result
+
+
 def run_parallel_agents(
     state: dict,
     agent_names: list[str],

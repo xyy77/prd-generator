@@ -77,3 +77,14 @@ class ChromaStore:
             metadata={"hnsw:space": "cosine"},
         )
         logger.info("Collection reset")
+
+    def get_source_types(self) -> list[str]:
+        """Return distinct source_type values present in the collection."""
+        if self._collection.count() == 0:
+            return []
+        all_metas = self._collection.get(include=["metadatas"])["metadatas"]
+        types: set[str] = set()
+        for meta in all_metas:
+            st = meta.get("source_type", "user_upload")
+            types.add(st)
+        return list(types)

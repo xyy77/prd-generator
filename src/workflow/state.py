@@ -54,6 +54,14 @@ class WorkflowState(TypedDict, total=False):
     selected_model: str
     temperature: float
 
+    # Planner
+    planner_output: dict[str, Any]
+
+    # Supervisor
+    supervisor_decision: dict[str, Any]
+    agents_to_call: list[str]
+    completed_agents: list[str]
+
     # Revision
     user_feedback: str
     revision_history: list[dict[str, Any]]
