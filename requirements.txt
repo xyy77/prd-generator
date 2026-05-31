@@ -16,6 +16,11 @@ openai==1.61.1
 # Web UI
 streamlit==1.41.1
 
+# API Server
+fastapi==0.115.6
+uvicorn==0.34.0
+sse-starlette==2.2.1
+
 # Config & Validation
 python-dotenv==1.0.1
 pydantic==2.10.4

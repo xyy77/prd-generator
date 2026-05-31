@@ -1,14 +1,44 @@
 import json
 
-from src.utils.llm_client import LLMClient
+from src.utils.llm_client import MultiProviderLLMClient
 from src.prompts.manager import PromptManager
-from src.workflow.multi_agent.node_utils import run_agent_node
 from src.workflow.multi_agent.state import AGENT_NAMES
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 ALL_AGENTS = list(AGENT_NAMES)
+
+DISPATCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "dispatch_agents",
+        "description": "根据产品复杂度、当前进度和用户反馈，决定下一步需要调度哪些Agent及其执行顺序",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agents_to_call": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["requirements_analyst", "feature_planner", "ux_designer", "tech_advisor"],
+                    },
+                    "description": "本次需要调用的Agent列表",
+                },
+                "execution_order": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Agent的执行顺序（有依赖关系时按序排列）",
+                },
+                "decision_rationale": {
+                    "type": "string",
+                    "description": "调度决策的理由说明",
+                },
+            },
+            "required": ["agents_to_call", "execution_order", "decision_rationale"],
+        },
+    },
+}
 
 
 def supervisor_node(state: dict, reference_context: str = "") -> dict:
@@ -75,9 +105,9 @@ def supervisor_node(state: dict, reference_context: str = "") -> dict:
                 "current_stage": "supervisor",
             }
 
-        # For medium/complex: use LLM to decide
+        # For medium/complex: use LLM with function calling to decide
         try:
-            client = LLMClient()
+            client = MultiProviderLLMClient()
             prompt_mgr = PromptManager()
             model = state.get("selected_model") or None
 
@@ -89,22 +119,22 @@ def supervisor_node(state: dict, reference_context: str = "") -> dict:
                 agents_to_call=json.dumps(completed, ensure_ascii=False),
             )
 
-            result = run_agent_node(client, messages, "supervisor", "supervisor_decision", model=model)
-            sd = result.get("supervisor_decision", {})
-            if isinstance(sd, dict):
-                result["agents_to_call"] = sd.get("agents_to_call", list(ALL_AGENTS))
-                result["execution_order"] = sd.get("execution_order", list(ALL_AGENTS))
-            else:
-                result["agents_to_call"] = list(ALL_AGENTS)
-                result["execution_order"] = list(ALL_AGENTS)
-            return result
+            sd = client.chat_with_tools(messages, tools=[DISPATCH_TOOL], model=model)
+            logger.info("Supervisor function calling result: agents=%s", sd.get("agents_to_call", []))
+
+            return {
+                "agents_to_call": sd.get("agents_to_call", list(ALL_AGENTS)),
+                "execution_order": sd.get("execution_order", list(ALL_AGENTS)),
+                "supervisor_decision": sd,
+                "current_stage": "supervisor",
+            }
 
         except Exception as e:
-            logger.error("Supervisor LLM call failed: %s, falling back to all agents", e)
+            logger.error("Supervisor function calling failed: %s, falling back to all agents", e)
             return {
                 "agents_to_call": list(ALL_AGENTS),
                 "execution_order": list(ALL_AGENTS),
-                "supervisor_decision": {"decision_rationale": "Supervisor 不可用，fallback 全部 Agent"},
+                "supervisor_decision": {"decision_rationale": "Supervisor function calling 失败，fallback 全部 Agent"},
                 "current_stage": "supervisor",
             }
 

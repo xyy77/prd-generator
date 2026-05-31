@@ -1,0 +1,327 @@
+{
+  "entities": [
+    {
+      "name": "普通出行用户",
+      "type": "user_role",
+      "description": "需要查询天气、导航、记录行程的日常用户"
+    },
+    {
+      "name": "商务出行用户",
+      "type": "user_role",
+      "description": "需要高效安排行程，保存会议地点和交通记录"
+    },
+    {
+      "name": "系统管理员",
+      "type": "user_role",
+      "description": "管理 MCP 工具注册、监控 Agent 执行日志"
+    },
+    {
+      "name": "初级创作者",
+      "type": "user_role",
+      "description": "刚起步的小红书博主，缺乏选题和写作经验"
+    },
+    {
+      "name": "资深创作者",
+      "type": "user_role",
+      "description": "已有粉丝量，日常内容更新压力大"
+    },
+    {
+      "name": "品牌/运营",
+      "type": "user_role",
+      "description": "管理多个账号，需要批量生产差异化内容"
+    },
+    {
+      "name": "自然语言对话与意图识别",
+      "type": "feature_module",
+      "description": "通过文本输入需求，Agent 理解出行相关意图，支持多轮对话"
+    },
+    {
+      "name": "MCP工具集成",
+      "type": "feature_module",
+      "description": "通过MCP标准协议连接并调用多个外部工具"
+    },
+    {
+      "name": "天气查询工具",
+      "type": "feature_module",
+      "description": "根据城市/地点和日期返回天气状况"
+    },
+    {
+      "name": "地图导航工具",
+      "type": "feature_module",
+      "description": "查询两地之间的路线，返回预估时间、距离等"
+    },
+    {
+      "name": "文件写入工具",
+      "type": "feature_module",
+      "description": "将出行规划、路线描述等写入本地文件"
+    },
+    {
+      "name": "日历提醒工具",
+      "type": "feature_module",
+      "description": "将出行事件添加到系统日历"
+    },
+    {
+      "name": "多步规划与Agent编排",
+      "type": "feature_module",
+      "description": "使用 LangGraph 构建状态图，支持顺序执行、条件分支等"
+    },
+    {
+      "name": "结果展示与输出",
+      "type": "feature_module",
+      "description": "以自然语言总结工具返回结果，结构化展示"
+    },
+    {
+      "name": "灵感收集",
+      "type": "feature_module",
+      "description": "快速记录入口，支持多种形式，碎片化记录灵感"
+    },
+    {
+      "name": "素材库管理",
+      "type": "feature_module",
+      "description": "管理用户的历史笔记和参考案例"
+    },
+    {
+      "name": "智能创作",
+      "type": "feature_module",
+      "description": "将灵感和参考笔记转化为小红书笔记，支持自动创作和协作创作"
+    },
+    {
+      "name": "LLM",
+      "type": "tech_component",
+      "description": "阿里通义千问 (Qwen-Max) 或其他，通过 LangChain 调用"
+    },
+    {
+      "name": "LangGraph",
+      "type": "tech_component",
+      "description": "构建 Agent 工作流的状态图框架"
+    },
+    {
+      "name": "MCP Server",
+      "type": "tech_component",
+      "description": "MCP 工具注册中心，管理多个工具"
+    },
+    {
+      "name": "MCP Client",
+      "type": "tech_component",
+      "description": "内置在 Agent 服务中，动态发现并调用 MCP 工具"
+    },
+    {
+      "name": "LangChain",
+      "type": "tech_component",
+      "description": "LLM 抽象层，统一接口调用"
+    },
+    {
+      "name": "FastAPI/WebSocket",
+      "type": "tech_component",
+      "description": "Agent 服务接口，处理用户请求"
+    },
+    {
+      "name": "天气API",
+      "type": "tech_component",
+      "description": "第三方天气数据源，如和风天气、OpenWeatherMap"
+    },
+    {
+      "name": "地图API",
+      "type": "tech_component",
+      "description": "提供地图和导航服务，如高德地图、百度地图、Google Maps"
+    },
+    {
+      "name": "文件系统",
+      "type": "tech_component",
+      "description": "本地文件系统，用于存储行程计划文件"
+    },
+    {
+      "name": "天气数据",
+      "type": "data_entity",
+      "description": "包含城市、日期、温度、湿度、降水概率、风力等信息"
+    },
+    {
+      "name": "路线数据",
+      "type": "data_entity",
+      "description": "路线摘要和步骤列表，包括时间、距离等"
+    },
+    {
+      "name": "行程计划文件",
+      "type": "data_entity",
+      "description": "保存出行规划的 Markdown 或 TXT 文件"
+    },
+    {
+      "name": "对话状态",
+      "type": "data_entity",
+      "description": "维护对话历史与已获取的工具结果，避免重复调用"
+    },
+    {
+      "name": "灵感片段",
+      "type": "data_entity",
+      "description": "用户记录的碎片化灵感，如文字、图片"
+    },
+    {
+      "name": "参考笔记",
+      "type": "data_entity",
+      "description": "用户导入的历史小红书笔记或优秀案例"
+    },
+    {
+      "name": "生成笔记",
+      "type": "data_entity",
+      "description": "AI 生成的符合平台风格的新笔记"
+    }
+  ],
+  "relations": [
+    {
+      "source": "普通出行用户",
+      "target": "自然语言对话与意图识别",
+      "type": "interacts_with",
+      "description": "出行用户通过自然语言对话与系统交互"
+    },
+    {
+      "source": "商务出行用户",
+      "target": "自然语言对话与意图识别",
+      "type": "interacts_with",
+      "description": "商务出行用户通过自然语言对话与系统交互"
+    },
+    {
+      "source": "系统管理员",
+      "target": "MCP Server",
+      "type": "interacts_with",
+      "description": "系统管理员管理MCP工具注册与监控"
+    },
+    {
+      "source": "初级创作者",
+      "target": "灵感收集",
+      "type": "interacts_with",
+      "description": "初级创作者使用灵感收集记录碎片想法"
+    },
+    {
+      "source": "初级创作者",
+      "target": "智能创作",
+      "type": "interacts_with",
+      "description": "初级创作者使用智能创作生成笔记"
+    },
+    {
+      "source": "资深创作者",
+      "target": "灵感收集",
+      "type": "interacts_with",
+      "description": "资深创作者使用灵感收集快速记录"
+    },
+    {
+      "source": "资深创作者",
+      "target": "智能创作",
+      "type": "interacts_with",
+      "description": "资深创作者使用智能创作扩展文案"
+    },
+    {
+      "source": "品牌/运营",
+      "target": "智能创作",
+      "type": "interacts_with",
+      "description": "品牌/运营使用智能创作批量生成内容"
+    },
+    {
+      "source": "自然语言对话与意图识别",
+      "target": "LLM",
+      "type": "depends_on",
+      "description": "意图识别依赖LLM进行自然语言理解"
+    },
+    {
+      "source": "自然语言对话与意图识别",
+      "target": "多步规划与Agent编排",
+      "type": "depends_on",
+      "description": "意图识别后需要编排引擎处理后续步骤"
+    },
+    {
+      "source": "天气查询工具",
+      "target": "天气API",
+      "type": "depends_on",
+      "description": "天气查询需要调用外部天气API获取数据"
+    },
+    {
+      "source": "地图导航工具",
+      "target": "地图API",
+      "type": "depends_on",
+      "description": "地图导航需要调用地图API获取路线"
+    },
+    {
+      "source": "文件写入工具",
+      "target": "文件系统",
+      "type": "depends_on",
+      "description": "文件写入工具依赖本地文件系统存储文件"
+    },
+    {
+      "source": "多步规划与Agent编排",
+      "target": "LangGraph",
+      "type": "depends_on",
+      "description": "Agent编排基于LangGraph状态图实现"
+    },
+    {
+      "source": "多步规划与Agent编排",
+      "target": "LLM",
+      "type": "depends_on",
+      "description": "编排过程中的决策节点依赖LLM进行推理"
+    },
+    {
+      "source": "多步规划与Agent编排",
+      "target": "MCP工具集成",
+      "type": "depends_on",
+      "description": "编排时需要调用MCP工具执行具体操作"
+    },
+    {
+      "source": "结果展示与输出",
+      "target": "LLM",
+      "type": "depends_on",
+      "description": "结果总结依赖LLM生成自然语言回复"
+    },
+    {
+      "source": "智能创作",
+      "target": "LLM",
+      "type": "depends_on",
+      "description": "智能创作依赖LLM生成小红书风格笔记"
+    },
+    {
+      "source": "MCP Client",
+      "target": "MCP Server",
+      "type": "depends_on",
+      "description": "MCP Client连接MCP Server获取工具列表"
+    },
+    {
+      "source": "MCP工具集成",
+      "target": "MCP Client",
+      "type": "depends_on",
+      "description": "通过MCP Client调用远程工具"
+    },
+    {
+      "source": "MCP工具集成",
+      "target": "MCP Server",
+      "type": "depends_on",
+      "description": "工具注册在MCP Server上"
+    },
+    {
+      "source": "MCP工具集成",
+      "target": "天气查询工具",
+      "type": "contains",
+      "description": "MCP工具集包含天气查询工具"
+    },
+    {
+      "source": "MCP工具集成",
+      "target": "地图导航工具",
+      "type": "contains",
+      "description": "MCP工具集包含地图导航工具"
+    },
+    {
+      "source": "MCP工具集成",
+      "target": "文件写入工具",
+      "type": "contains",
+      "description": "MCP工具集包含文件写入工具"
+    },
+    {
+      "source": "MCP工具集成",
+      "target": "日历提醒工具",
+      "type": "contains",
+      "description": "MCP工具集包含可选的日历提醒工具"
+    },
+    {
+      "source": "自然语言对话与意图识别",
+      "target": "多步规划与Agent编排",
+      "type": "triggers",
+      "description": "用户意图识别后触发Agent编排工作流"
+    }
+  ]
+}

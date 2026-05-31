@@ -36,26 +36,38 @@ def run_agent_node(
     agent_name: str,
     output_key: str,
     model: str | None = None,
+    use_json_mode: bool = True,
 ) -> dict:
     raw = ""
     try:
-        raw = client.chat_with_json_mode(messages, model=model)
+        if use_json_mode:
+            raw = client.chat_with_json_mode(messages, model=model)
+        else:
+            raw = client.chat(messages, model=model)
         logger.info("Agent %s complete, response length: %d", agent_name, len(raw))
         parsed = safe_json_extract(raw)
         return {output_key: parsed, "current_stage": agent_name}
     except json.JSONDecodeError as e:
         logger.warning(
-            "Agent %s JSON parse failed: %s. Retrying with correction prompt...",
-            agent_name, e,
+            "Agent %s JSON parse failed: %s. Raw preview: %.300s",
+            agent_name, e, raw,
         )
+        if not raw.strip():
+            logger.error("Agent %s returned empty response", agent_name)
+            return {output_key: {}, "current_stage": agent_name, "error_message": "Empty LLM response"}
         try:
             correction_msgs = _build_correction_messages(messages, raw, str(e))
             raw2 = client.chat(correction_msgs, model=model)
             logger.info("Agent %s correction response length: %d", agent_name, len(raw2))
             parsed = safe_json_extract(raw2)
+            logger.info("Agent %s correction succeeded", agent_name)
             return {output_key: parsed, "current_stage": agent_name, "_corrected": True}
+        except json.JSONDecodeError as e2:
+            logger.error("Agent %s correction also failed: %s. Raw preview: %.300s",
+                         agent_name, e2, raw2)
+            return {output_key: {}, "current_stage": agent_name, "error_message": str(e2)}
         except Exception as e2:
-            logger.error("Agent %s correction also failed: %s", agent_name, e2)
+            logger.error("Agent %s correction unexpected error: %s", agent_name, e2)
             return {output_key: {}, "current_stage": agent_name, "error_message": str(e2)}
     except Exception as e:
         logger.error("Agent %s failed: %s", agent_name, e)
@@ -117,10 +129,11 @@ def run_agent_with_reflexion(
     output_key: str,
     model: str | None = None,
     reflexion_threshold: int = 75,
+    use_json_mode: bool = True,
 ) -> dict:
     """Run an agent with self-reflection: generate → self-evaluate → correct if needed."""
     # 1. Initial generation
-    result = run_agent_node(client, messages, agent_name, output_key, model=model)
+    result = run_agent_node(client, messages, agent_name, output_key, model=model, use_json_mode=use_json_mode)
     draft = result.get(output_key, {})
 
     if not isinstance(draft, dict) or not draft:

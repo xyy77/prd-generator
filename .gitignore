@@ -28,6 +28,9 @@ output/
 # Streamlit
 .streamlit/secrets.toml
 
+# Docs (excluded from v3+)
+docs/
+
 # OS
 .DS_Store
 Thumbs.db

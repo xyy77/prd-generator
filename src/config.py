@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     reflection_max_rounds: int = 2
     reviewer_score_threshold: int = 80
 
+    # API Server
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    api_cors_origins: list[str] = ["*"]
+
+    # Multi-provider text LLM (all OpenAI-compatible)
+    dashscope_text_model: str = "qwen-plus"
+    zhipu_text_model: str = "glm-4-flash"
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )

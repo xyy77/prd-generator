@@ -81,7 +81,8 @@ class TestUXDesigner:
 class TestTechAdvisor:
     def test_node_returns_parsed_json(self):
         with patch("src.workflow.multi_agent.agents.tech_advisor.LLMClient") as mock_cls:
-            mock_cls.return_value.chat_with_json_mode.return_value = TECH_JSON
+            # tech_advisor uses use_json_mode=False, so mock chat() not chat_with_json_mode()
+            mock_cls.return_value.chat.return_value = TECH_JSON
             state = {"product_idea": "AI助手", "requirement_analysis": {}, "feature_plan": {}, "ux_design": {}}
             result = tech_advisor_node(state)
         assert "tech_advice" in result

@@ -9,6 +9,7 @@ logger = get_logger(__name__)
 
 def safe_json_extract(raw: str) -> dict:
     raw = raw.strip()
+    original = raw
 
     # Strip markdown code fences
     fence_pattern = r"^```(?:json)?\s*\n(.*?)\n```\s*$"
@@ -21,25 +22,46 @@ def safe_json_extract(raw: str) -> dict:
     end = raw.rfind("}")
     if start != -1 and end != -1 and end > start:
         raw = raw[start : end + 1]
+    else:
+        # No JSON object found — try to find JSON array
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            raw = raw[start : end + 1]
+        else:
+            logger.error("safe_json_extract: no JSON object or array found in: %.200s", original)
+            raise json.JSONDecodeError("No JSON structure found", original, 0)
 
     # Multi-pass repair loop
-    for _ in range(3):
+    for attempt in range(3):
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            if attempt == 0:
+                logger.debug("safe_json_extract: initial parse failed (%.200s), attempting repair", str(e))
             raw = _repair_json(raw)
 
+    # Log failure details
+    logger.error(
+        "safe_json_extract: unable to repair JSON after 3 attempts. Preview: %.500s",
+        raw,
+    )
     raise json.JSONDecodeError("safe_json_extract: unable to repair JSON", raw, 0)
 
 
 def _repair_json(raw: str) -> str:
     """Apply successive JSON repair heuristics. Returns repaired string."""
     # Remove trailing commas in objects/arrays
-    raw = re.sub(r",\s*}", "}", raw)
-    raw = re.sub(r",\s*]", "]", raw)
+    raw = re.sub(r',\s*}', '}', raw)
+    raw = re.sub(r',\s*]', ']', raw)
 
-    # Fix bad escape sequences (backslash before non-escape char)
-    raw = re.sub(r"\\(?=[^{}\"\[\]\\/bfnrtu])", r"\\\\", raw)
+    # Fix bad escape sequences: \x where x is not a valid JSON escape char.
+    # Use [\\] char-class (avoids \\( adjacency bug in regex) then capture group.
+    raw = re.sub(
+        r'[\\]([^{}"\[\]\\/bfnrtu])',
+        r'\\\\\1',
+        raw,
+    )
 
     # Fix unquoted property names: {key: or , key: → {"key": or , "key":
     raw = re.sub(r'([\{,]\s*)([a-zA-Z_一-鿿][a-zA-Z0-9_一-鿿]*)\s*:', r'\1"\2":', raw)
@@ -51,11 +73,11 @@ def _repair_json(raw: str) -> str:
     # "string" followed by " (newline or space)
     raw = re.sub(r'("(?:\\.|[^"\\])*")\s*\n\s*"', r'\1,\n  "', raw)
     # } or ] followed by "
-    raw = re.sub(r"([}\]])\s*\n\s*\"", r'\1,\n  "', raw)
+    raw = re.sub(r'([}\]])\s*\n\s*"', r'\1,\n  "', raw)
     # number/true/false/null followed by "
-    raw = re.sub(r"(\d+|true|false|null)\s*\n\s*\"", r'\1,\n  "', raw)
+    raw = re.sub(r'(\d+|true|false|null)\s*\n\s*"', r'\1,\n  "', raw)
     # } followed by { or [
-    raw = re.sub(r"([}\]])\s*\n\s*([\{[])", r"\1,\n  \2", raw)
+    raw = re.sub(r'([}\]])\s*\n\s*([\{[])', r'\1,\n  \2', raw)
 
     # Balance unclosed braces/brackets
     open_braces = raw.count("{") - raw.count("}")

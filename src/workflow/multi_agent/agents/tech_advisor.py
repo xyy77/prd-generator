@@ -25,4 +25,4 @@ def tech_advisor_node(state: dict, reference_context: str = "") -> dict:
         user_feedback=state.get("user_feedback", ""),
     )
 
-    return run_agent_with_reflexion(client, messages, "tech_advisor", "tech_advice", model=model)
+    return run_agent_with_reflexion(client, messages, "tech_advisor", "tech_advice", model=model, use_json_mode=False)

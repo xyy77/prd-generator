@@ -1,6 +1,10 @@
 import json
+import statistics
 
-from src.utils.llm_client import LLMClient
+from src.utils.llm_client import LLMClient, MultiProviderLLMClient
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 COMPLETENESS_PROMPT = """你是一位PRD质量评估专家。请检查以下PRD文档是否包含10个必备章节。
 
@@ -81,6 +85,18 @@ def _format_prd_for_eval(prd_markdown: str) -> str:
     return prd_markdown
 
 
+def _parse_json_response(raw: str) -> dict:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines)
+    return json.loads(raw)
+
+
 def _call_evaluator(prompt: str, model: str | None = None) -> dict:
     client = LLMClient()
     messages = [
@@ -89,17 +105,67 @@ def _call_evaluator(prompt: str, model: str | None = None) -> dict:
     ]
     try:
         raw = client.chat_with_json_mode(messages, model=model)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            raw = "\n".join(lines)
-        return json.loads(raw)
+        return _parse_json_response(raw)
     except Exception:
         return {"score": 0, "error": "Evaluation failed"}
+
+
+def _call_multi_judge(prompt: str) -> dict:
+    """Call all 3 providers and return median score with per-judge details.
+
+    Returns:
+        {"score": int, "judge_scores": {"deepseek": 8, "bailian": 7, "zhipu": 7},
+         "disagreement": int, "method": "median", "provider_count": int}
+    """
+    messages = [
+        {"role": "system", "content": "你是一位严格的评估专家。请严格按照JSON格式返回评分结果。"},
+        {"role": "user", "content": prompt},
+    ]
+
+    client = MultiProviderLLMClient()
+    available = client.available_providers
+    if len(available) < 2:
+        # Only one provider — fallback to single judge
+        try:
+            raw = client.chat_with_json_mode(messages)
+            parsed = _parse_json_response(raw)
+            single_score = int(parsed.get("score", 0))
+            return {
+                "score": single_score,
+                "judge_scores": {available[0]: single_score},
+                "disagreement": 0,
+                "method": "single",
+                "provider_count": 1,
+            }
+        except Exception:
+            return {"score": 0, "judge_scores": {}, "disagreement": 0, "method": "single", "provider_count": 0}
+
+    judge_scores: dict[str, int] = {}
+    for provider_name in available:
+        try:
+            raw = client.chat_with_json_mode(messages, model=None)
+            parsed = _parse_json_response(raw)
+            s = int(parsed.get("score", 0))
+            judge_scores[provider_name] = s
+            logger.debug("Multi-judge [%s] score: %d", provider_name, s)
+        except Exception as e:
+            logger.warning("Multi-judge [%s] failed: %s", provider_name, e)
+            continue
+
+    if not judge_scores:
+        return {"score": 0, "judge_scores": {}, "disagreement": 0, "method": "none", "provider_count": 0}
+
+    scores = list(judge_scores.values())
+    median_score = int(statistics.median(scores)) if scores else 0
+    disagreement = max(scores) - min(scores) if len(scores) >= 2 else 0
+
+    return {
+        "score": median_score,
+        "judge_scores": judge_scores,
+        "disagreement": disagreement,
+        "method": "median",
+        "provider_count": len(judge_scores),
+    }
 
 
 def completeness_score(prd_markdown: str, model: str | None = None) -> int:
@@ -146,3 +212,49 @@ def evaluate_prd(
         "consistency": consistency_score(prd_markdown, product_idea, model=model),
         "relevance": relevance_score(prd_markdown, product_idea, model=model),
     }
+
+
+def evaluate_prd_multi_judge(
+    prd_markdown: str,
+    product_idea: str,
+) -> dict:
+    """Evaluate PRD with multi-judge voting (3 providers, median aggregation).
+
+    Each of the 4 dimensions is scored independently by all available
+    LLM providers (DeepSeek, Bailian/qwen-plus, Zhipu/glm-4-flash).
+    The median score is used as the final score for each dimension.
+
+    Returns:
+        {
+            "completeness": {"score": int, "judge_scores": {...}, "disagreement": int, ...},
+            "feasibility": { ... },
+            "consistency": { ... },
+            "relevance": { ... },
+            "overall": float,   # average of 4 dimension median scores
+        }
+    """
+    formatted = _format_prd_for_eval(prd_markdown)
+
+    dims: dict[str, dict] = {}
+
+    # Completeness
+    prompt_c = COMPLETENESS_PROMPT.format(prd_content=formatted)
+    dims["completeness"] = _call_multi_judge(prompt_c)
+
+    # Feasibility
+    prompt_f = FEASIBILITY_PROMPT.format(product_idea=product_idea, prd_content=formatted)
+    dims["feasibility"] = _call_multi_judge(prompt_f)
+
+    # Consistency
+    prompt_con = CONSISTENCY_PROMPT.format(product_idea=product_idea, prd_content=formatted)
+    dims["consistency"] = _call_multi_judge(prompt_con)
+
+    # Relevance
+    prompt_r = RELEVANCE_PROMPT.format(product_idea=product_idea, prd_content=formatted)
+    dims["relevance"] = _call_multi_judge(prompt_r)
+
+    # Overall
+    scores = [d["score"] for d in dims.values()]
+    dims["overall"] = round(sum(scores) / len(scores), 1) if scores else 0
+
+    return dims

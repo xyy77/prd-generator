@@ -29,4 +29,6 @@ class TestRetriever:
         assert results[0].score > 0
 
         context = retriever.search_as_context("写作助手")
-        assert "参考案例" in context
+        # Context may contain graph results or retrieved documents
+        assert len(context) > 0
+        assert any(kw in context for kw in ["参考案例", "知识图谱", "历史案例"])
