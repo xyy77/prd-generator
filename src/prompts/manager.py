@@ -81,6 +81,7 @@ class PromptManager:
         execution_plan: str = "",
         agents_to_call: str = "",
         user_feedback: str = "",
+        deterministic_result: str = "",
     ) -> list[dict]:
         from datetime import date
 
@@ -113,6 +114,7 @@ class PromptManager:
             kwargs["ux_design"] = ux_design or "{}"
         if agent == "reviewer":
             kwargs["tech_advice"] = tech_advice or "{}"
+            kwargs["deterministic_result"] = deterministic_result or "（未执行确定性校验）"
 
         messages = self.build_messages(template, **kwargs)
 

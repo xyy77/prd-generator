@@ -187,6 +187,21 @@ def render_sidebar() -> None:
                     key="sidebar_reviewer_threshold",
                 )
 
+            with st.expander("🔒 锁定环节（修订时跳过）", expanded=False):
+                st.caption("勾选的 Agent 在评审修订时将冻结不变，不会被重新执行。")
+                locked = st.session_state.get("locked_agents", [])
+                new_locked = []
+                agent_labels = {
+                    "requirements_analyst": "需求分析师",
+                    "feature_planner": "功能规划师",
+                    "ux_designer": "UX 设计师",
+                    "tech_advisor": "技术顾问",
+                }
+                for key, label in agent_labels.items():
+                    if st.checkbox(label, value=key in locked, key=f"lock_{key}"):
+                        new_locked.append(key)
+                st.session_state.locked_agents = new_locked
+
         st.divider()
 
         # ── Section 2: Reference materials ──
@@ -735,6 +750,7 @@ def _run_multi_agent_pipeline(product_idea: str, supplementary_info: str) -> Non
                 reflection_max_rounds=st.session_state.reflection_max_rounds,
                 reviewer_score_threshold=st.session_state.reviewer_score_threshold,
                 on_node_complete=on_node,
+                locked_agents=st.session_state.get("locked_agents", []),
             )
         except Exception as e:
             progress_bar.progress(100, text="❌ 生成失败")

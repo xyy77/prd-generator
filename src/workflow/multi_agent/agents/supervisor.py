@@ -63,11 +63,17 @@ def supervisor_node(state: dict, reference_context: str = "") -> dict:
             "current_stage": "supervisor",
         }
 
-    # Revision mode: only re-run flagged agents
+    # Revision mode: only re-run flagged agents, skip locked ones
     if agents_to_revise:
-        pending = [a for a in agents_to_revise if a in ALL_AGENTS and a not in completed]
+        locked = state.get("locked_agents", [])
+        pending = [a for a in agents_to_revise if a in ALL_AGENTS and a not in completed and a not in locked]
+        skipped = [a for a in agents_to_revise if a in locked]
+        if skipped:
+            logger.info("Supervisor (revision): skipping locked agents %s", skipped)
         if pending:
             rationale = "用户修改意见触发全量修订" if state.get("user_feedback") else f"修订模式：重新执行 {', '.join(pending)}"
+            if skipped:
+                rationale += f"（已跳过锁定 Agent: {', '.join(skipped)}）"
             logger.info("Supervisor (revision): re-running %s", pending)
             return {
                 "agents_to_call": pending,

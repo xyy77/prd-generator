@@ -50,8 +50,15 @@ TECH_JSON = json.dumps({
 
 class TestRequirementsAnalyst:
     def test_node_returns_parsed_json(self):
-        with patch("src.workflow.multi_agent.agents.requirements_analyst.LLMClient") as mock_cls:
-            mock_cls.return_value.chat_with_json_mode.return_value = REQUIREMENTS_JSON
+        with patch("src.workflow.multi_agent.agents.requirements_analyst.MultiProviderLLMClient") as mock_cls:
+            # Simulate: no tool call → final JSON output directly
+            mock_cls.return_value.chat_with_tools.return_value = {
+                "_is_tool_call": False,
+                "product_name": "测试产品",
+                "product_overview": "概述",
+            }
+            # Self-evaluation returns high score to skip correction
+            mock_cls.return_value.chat_with_json_mode.return_value = '{"score": 90, "issues": []}'
             state = {"product_idea": "AI助手", "retrieved_context": "参考"}
             result = requirements_analyst_node(state)
         assert "requirement_analysis" in result
@@ -70,8 +77,13 @@ class TestFeaturePlanner:
 
 class TestUXDesigner:
     def test_node_returns_parsed_json(self):
-        with patch("src.workflow.multi_agent.agents.ux_designer.LLMClient") as mock_cls:
-            mock_cls.return_value.chat_with_json_mode.return_value = UX_JSON
+        import json as _json
+        ux_data = _json.loads(UX_JSON)
+        ux_data["_is_tool_call"] = False
+
+        with patch("src.workflow.multi_agent.agents.ux_designer.MultiProviderLLMClient") as mock_cls:
+            mock_cls.return_value.chat_with_tools.return_value = ux_data
+            mock_cls.return_value.chat_with_json_mode.return_value = '{"score": 90, "issues": []}'
             state = {"product_idea": "AI助手", "requirement_analysis": {}, "feature_plan": {}}
             result = ux_designer_node(state)
         assert "ux_design" in result

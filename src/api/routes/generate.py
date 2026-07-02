@@ -18,6 +18,11 @@ from src.workflow.multi_agent.graph import (
     run_multi_agent_workflow,
     run_multi_agent_revision,
 )
+from src.utils.input_validation import (
+    validate_product_idea,
+    validate_supplementary,
+    check_prompt_injection,
+)
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,16 +51,27 @@ def _get_retriever() -> Retriever:
 def generate(req: GenerateRequest) -> GenerateResponse:
     """Synchronous PRD generation. Returns the complete result."""
     start = time.time()
+
+    product_idea = validate_product_idea(req.product_idea)
+    if not product_idea:
+        raise HTTPException(status_code=400, detail="product_idea 不能为空")
+    supplementary_info = validate_supplementary(req.supplementary_info)
+
+    # Log injection warnings for monitoring
+    suspicious = check_prompt_injection(product_idea)
+    if suspicious:
+        logger.warning("Prompt injection patterns in request: %s", suspicious)
+
     try:
         retriever = _get_retriever()
-        retrieved_context = retriever.search_as_context(req.product_idea)
+        retrieved_context = retriever.search_as_context(product_idea)
     except Exception as e:
         logger.warning("RAG retrieval failed: %s, continuing without context", e)
         retrieved_context = ""
 
     result = run_multi_agent_workflow(
-        product_idea=req.product_idea,
-        supplementary_info=req.supplementary_info,
+        product_idea=product_idea,
+        supplementary_info=supplementary_info,
         retrieved_context=retrieved_context,
         selected_model=req.selected_model,
         temperature=req.temperature,
@@ -70,7 +86,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
 
     return GenerateResponse(
         success=success,
-        product_idea=req.product_idea,
+        product_idea=product_idea,
         final_prd_json=result.get("final_prd_json"),
         final_prd_markdown=result.get("final_prd_markdown"),
         reviewer_score=result.get("reviewer_score"),

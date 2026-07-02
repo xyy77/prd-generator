@@ -22,7 +22,8 @@ REQUIREMENTS_ANALYST_PROMPT = AgentPromptTemplate(
 输出要求：
 - 严格返回 JSON 格式，不要包含 markdown 代码块标记
 - 用户画像至少3个，用户故事至少5个
-- 成功指标必须可量化，有具体的测量方法""",
+- 成功指标必须可量化，有具体的测量方法
+- 你可以调用 search_competitors 工具获取实时竞品和市场信息。当产品想法涉及不熟悉的领域或需要了解市场现状时，主动搜索。不要编造竞品信息。""",
     user_message_template="""请对以下产品想法进行深度需求分析。
 
 产品想法：{product_idea}
@@ -111,7 +112,8 @@ UX_DESIGNER_PROMPT = AgentPromptTemplate(
 - 严格返回 JSON 格式，不要包含 markdown 代码块标记
 - 每个页面需包含正常状态和异常状态描述
 - 交互流程要有完整的步骤序列
-- Mermaid图表代码中不要使用分号结尾""",
+- Mermaid图表代码中不要使用分号结尾
+- 生成 Mermaid 代码后，请调用 validate_mermaid 工具校验语法，如有错误根据提示修正后重新输出""",
     user_message_template="""请根据需求和功能规划，设计产品的用户体验。
 
 产品想法：{product_idea}
@@ -248,6 +250,12 @@ REVIEWER_PROMPT = AgentPromptTemplate(
 产品想法：{product_idea}
 图片分析结果：{image_analysis}
 当前日期：{current_date}
+
+【确定性代码校验结果】（来自 Python 规则引擎，非 LLM 判断，100% 准确）：
+
+{deterministic_result}
+
+请重点检查未通过的校验项，并结合内容质量进行综合评审。
 
 === 需求分析师输出 ===
 {requirement_analysis}

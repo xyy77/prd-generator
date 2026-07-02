@@ -45,6 +45,9 @@ rich==13.9.4
 dashscope>=1.17.0
 zhipuai>=2.1.0
 
+# Web Search (competitor research)
+duckduckgo_search>=7.0
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.24.0

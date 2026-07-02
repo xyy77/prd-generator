@@ -66,6 +66,7 @@ class WorkflowState(TypedDict, total=False):
     user_feedback: str
     revision_history: list[dict[str, Any]]
     revision_count: int
+    locked_agents: list[str]  # User-locked agents — revision will skip these
 
     # Final output
     final_prd_markdown: str

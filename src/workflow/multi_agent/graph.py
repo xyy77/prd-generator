@@ -216,6 +216,7 @@ def run_multi_agent_workflow(
     reflection_max_rounds: int | None = None,
     reviewer_score_threshold: int | None = None,
     on_node_complete: Callable[[str, dict[str, Any]], None] | None = None,
+    locked_agents: list[str] | None = None,
 ) -> WorkflowState:
     graph = get_multi_agent_graph()
     initial_state: WorkflowState = {
@@ -232,6 +233,7 @@ def run_multi_agent_workflow(
         "completed_agents": [],
         "execution_order": [],
         "agents_to_call": [],
+        "locked_agents": locked_agents or [],
     }
     if selected_model:
         initial_state["selected_model"] = selected_model
@@ -276,6 +278,7 @@ def run_multi_agent_revision(
     state["execution_order"] = []
     state["agents_to_call"] = []
     state["current_stage"] = "awaiting_revision"
+    state.setdefault("locked_agents", [])
     logger.info("Running multi-agent revision with feedback: %s...", feedback[:80])
 
     if on_node_complete is not None:

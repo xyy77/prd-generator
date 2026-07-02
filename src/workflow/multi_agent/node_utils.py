@@ -1,7 +1,8 @@
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.utils.llm_client import LLMClient
+from src.utils.llm_client import LLMClient, MultiProviderLLMClient
 from src.workflow.node_utils import safe_json_extract
 from src.utils.logger import get_logger
 
@@ -173,6 +174,152 @@ def run_agent_with_reflexion(
     except Exception as e:
         logger.warning("Agent %s reflexion failed: %s, keeping original output", agent_name, e)
 
+    return result
+
+
+def run_agent_with_tools(
+    client,
+    messages: list[dict],
+    tools: list[dict],
+    tool_fns: dict,
+    agent_name: str,
+    output_key: str,
+    model: str | None = None,
+    max_tool_rounds: int = 3,
+    reflexion_threshold: int = 75,
+) -> dict:
+    """Run an agent with Function Calling tool access (ReAct loop).
+
+    The agent can decide autonomously when to call tools during reasoning.
+    After tool use rounds complete and a final JSON output is produced,
+    the standard Reflexion self-evaluation + correction is applied.
+
+    Args:
+        client: MultiProviderLLMClient (must support chat_with_tools).
+        messages: Initial system + user messages.
+        tools: OpenAI Function Calling tool definitions.
+        tool_fns: Mapping from tool name to callable, e.g. {"search": _search_impl}.
+        agent_name: Name of the agent (for logging).
+        output_key: Key to store the parsed result under.
+        model: Optional model override.
+        max_tool_rounds: Max tool-call rounds (prevents infinite loops).
+        reflexion_threshold: Score threshold for Reflexion self-correction.
+    """
+    conversation = list(messages)
+    raw = ""
+    tool_round = 0
+
+    while tool_round < max_tool_rounds:
+        tool_round += 1
+        try:
+            result = client.chat_with_tools(
+                conversation, tools=tools, model=model, force_tool=False,
+            )
+        except Exception as e:
+            logger.error("Agent %s chat_with_tools failed (round %d): %s", agent_name, tool_round, e)
+            raw = ""
+            break
+
+        if not isinstance(result, dict):
+            raw = str(result) if result else ""
+            break
+
+        # Check if LLM made a tool call or returned final answer
+        is_tool_call = result.pop("_is_tool_call", False)
+        tool_name = result.pop("_tool_name", None)
+
+        if not is_tool_call or not tool_name:
+            # Final answer — strip sentinel fields and break the loop
+            result.pop("_is_tool_call", None)
+            result.pop("_tool_name", None)
+            raw = json.dumps(result, ensure_ascii=False)
+            break
+
+        tool_args = {k: v for k, v in result.items() if not k.startswith("_")}
+        fn = tool_fns.get(tool_name)
+        if fn is None:
+            tool_output = json.dumps({"error": f"Unknown tool: {tool_name}"})
+            logger.warning("Agent %s called unknown tool '%s'", agent_name, tool_name)
+        else:
+            try:
+                tool_output = fn(**tool_args)
+                logger.info("Agent %s tool '%s' OK (%d chars)", agent_name, tool_name, len(tool_output))
+            except Exception as e:
+                tool_output = json.dumps({"error": str(e), "tool": tool_name})
+                logger.warning("Agent %s tool '%s' exec failed: %s", agent_name, tool_name, e)
+
+        conversation.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{
+                "id": f"call_{tool_name}_{tool_round}",
+                "type": "function",
+                "function": {"name": tool_name, "arguments": json.dumps(tool_args, ensure_ascii=False)},
+            }],
+        })
+        conversation.append({
+            "role": "tool",
+            "tool_call_id": f"call_{tool_name}_{tool_round}",
+            "content": tool_output,
+        })
+
+    if not raw:
+        try:
+            raw = client.chat_with_json_mode(conversation, model=model)
+        except Exception as e:
+            logger.error("Agent %s final JSON call failed: %s", agent_name, e)
+            return {output_key: {}, "current_stage": agent_name, "error_message": str(e)}
+
+    logger.info("Agent %s (tools) final response length: %d, tool rounds: %d", agent_name, len(raw), tool_round)
+
+    try:
+        parsed = safe_json_extract(raw)
+    except json.JSONDecodeError as e:
+        logger.warning("Agent %s (tools) JSON parse failed: %s", agent_name, e)
+        return {output_key: {}, "current_stage": agent_name, "error_message": str(e)}
+
+    if not isinstance(parsed, dict) or not parsed:
+        logger.warning("Agent %s (tools) produced empty output, skipping reflexion", agent_name)
+        return {output_key: parsed, "current_stage": agent_name}
+
+    # Reflexion self-evaluation
+    try:
+        eval_messages = _build_self_eval_messages(agent_name, parsed)
+        eval_raw = client.chat_with_json_mode(eval_messages, model=model)
+        eval_result = safe_json_extract(eval_raw)
+        score = eval_result.get("score", 0)
+
+        if isinstance(score, bool):
+            score = 0
+        if not isinstance(score, (int, float)):
+            score = 0
+
+        logger.info("Agent %s (tools) self-evaluation score: %s", agent_name, score)
+
+        if score < reflexion_threshold:
+            issues = eval_result.get("issues", [])
+            logger.info("Agent %s (tools) score %d < %d, triggering self-correction",
+                        agent_name, score, reflexion_threshold)
+            correction_msgs = _build_reflexion_correction_messages(messages, parsed, issues)
+            raw2 = client.chat_with_json_mode(correction_msgs, model=model)
+            corrected = safe_json_extract(raw2)
+            if isinstance(corrected, dict) and corrected:
+                result = {output_key: corrected, "current_stage": agent_name}
+                result["_reflexion_applied"] = True
+                result["_reflexion_score_before"] = score
+                result["_tool_rounds"] = tool_round
+                return result
+        else:
+            result = {output_key: parsed, "current_stage": agent_name}
+            result["_reflexion_evaluated"] = True
+            result["_reflexion_score"] = score
+            result["_tool_rounds"] = tool_round
+            return result
+    except Exception as e:
+        logger.warning("Agent %s (tools) reflexion failed: %s, keeping output", agent_name, e)
+
+    result = {output_key: parsed, "current_stage": agent_name}
+    result["_tool_rounds"] = tool_round
     return result
 
 

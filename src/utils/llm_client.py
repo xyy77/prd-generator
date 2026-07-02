@@ -250,11 +250,15 @@ class MultiProviderLLMClient:
         tools: list[dict],
         model: str | None = None,
         temperature: float | None = None,
+        force_tool: bool = True,
     ) -> dict:
         """Send a chat completion with function calling (tool_choice).
 
         Returns the parsed tool call arguments dict, or falls back to
         JSON Mode parsing if the provider doesn't return a tool call.
+
+        When force_tool=False, the LLM may choose not to call any tool.
+        In that case the returned dict has ``_is_tool_call`` set to False.
         """
         temp = temperature if temperature is not None else self.temperature
         last_error: Exception | None = None
@@ -265,35 +269,44 @@ class MultiProviderLLMClient:
             use_model = model or provider["default_model"]
 
             try:
-                completion = client.chat.completions.create(
+                kwargs: dict = dict(
                     model=use_model,
                     messages=messages,
                     temperature=temp,
                     tools=tools,
-                    tool_choice={"type": "function", "function": {"name": tools[0]["function"]["name"]}},
                 )
+                if force_tool:
+                    kwargs["tool_choice"] = {"type": "function", "function": {"name": tools[0]["function"]["name"]}}
+
+                completion = client.chat.completions.create(**kwargs)
 
                 msg = completion.choices[0].message
                 if msg.tool_calls:
-                    raw_args = msg.tool_calls[0].function.arguments
+                    tc = msg.tool_calls[0]
+                    raw_args = tc.function.arguments
                     parsed = json.loads(raw_args)
-                    logger.debug("MultiProvider [%s] tool_call OK, args: %s keys",
-                                 provider_name, list(parsed.keys()))
+                    parsed["_is_tool_call"] = True
+                    parsed["_tool_name"] = tc.function.name
+                    logger.debug("MultiProvider [%s] tool_call '%s' OK, args: %s keys",
+                                 provider_name, tc.function.name, list(parsed.keys()))
                     self._fallback_log.append({
                         "provider": provider_name, "model": use_model,
-                        "status": "tool_call", "args_keys": list(parsed.keys()),
+                        "status": "tool_call", "tool_name": tc.function.name,
                     })
                     return parsed
 
-                # No tool call returned — try parsing content as JSON instead
+                # No tool call returned — parse content as JSON
                 content = msg.content or ""
                 if content.strip():
                     logger.debug("MultiProvider [%s] no tool_call, parsing content as JSON", provider_name)
                     self._fallback_log.append({
                         "provider": provider_name, "model": use_model,
-                        "status": "json_fallback", "chars": len(content),
+                        "status": "content", "chars": len(content),
                     })
-                    return json.loads(content) if content.strip().startswith("{") else {}
+                    parsed = json.loads(content) if content.strip().startswith("{") else {}
+                    if isinstance(parsed, dict):
+                        parsed["_is_tool_call"] = False
+                    return parsed
 
                 raise LLMError(f"Provider {provider_name} returned empty response with no tool call")
 
